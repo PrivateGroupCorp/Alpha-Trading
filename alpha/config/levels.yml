@@ -1,0 +1,19 @@
+profiles:
+  h1:
+    tz: "UTC"
+    proportionality_ratio: 0.50
+    doji_body_ratio: 0.20
+    break_mult_atr: 0.15
+    eql_eqh_atr_mult: 0.05
+  m15:
+    tz: "UTC"
+    proportionality_ratio: 0.50
+    doji_body_ratio: 0.20
+    break_mult_atr: 0.18
+    eql_eqh_atr_mult: 0.05
+  m1:
+    tz: "UTC"
+    proportionality_ratio: 0.60
+    doji_body_ratio: 0.18
+    break_mult_atr: 0.10
+    eql_eqh_atr_mult: 0.07

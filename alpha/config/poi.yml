@@ -1,0 +1,9 @@
+ranking:
+  weights:
+    origin: 1.0
+    bos_causing: 0.8
+    continuation: 0.4
+    holding: 0.3
+box:
+  extend_wicks: true
+  min_touch_count: 1

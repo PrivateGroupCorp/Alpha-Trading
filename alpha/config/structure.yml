@@ -1,0 +1,11 @@
+profiles:
+  h1:
+    use_only_strong_swings: true
+    swing_merge_atr_mult: 0.10
+    bos_break_mult_atr: 0.15
+    bos_leg_min_atr_mult: 0.55
+  m15:
+    use_only_strong_swings: true
+    swing_merge_atr_mult: 0.10
+    bos_break_mult_atr: 0.18
+    bos_leg_min_atr_mult: 0.50

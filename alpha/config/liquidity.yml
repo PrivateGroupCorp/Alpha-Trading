@@ -1,0 +1,5 @@
+asia_session:
+  start_h: 0
+  end_h: 8
+cluster:
+  eq_atr_tol: 0.06
