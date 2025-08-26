@@ -1,0 +1,18 @@
+levels_plot:
+  last_n_bars: 500
+  linewidth: 1.6
+  alpha_intact: 0.35
+  alpha_broken: 0.85
+  colors:
+    peak_intact: "#f59e0b"
+    peak_broken: "#ef4444"
+    trough_intact: "#0ea5e9"
+    trough_broken: "#22c55e"
+    price: "#6b7280"
+    break_vline: "#94a3b8"
+  show_break_vlines: true
+  show_first_touch_markers: true
+  show_labels_on_edges: true
+  dpi: 150
+  fig_w: 12
+  fig_h: 6
