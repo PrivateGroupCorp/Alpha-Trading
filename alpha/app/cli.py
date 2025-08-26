@@ -17,6 +17,10 @@ from alpha.levels.proportionality import (
     LevelsCfgProportionality,
     compute_levels_proportionality,
 )
+from alpha.levels.break_update import (
+    LevelsCfgBreakUpdate,
+    apply_break_update,
+)
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -194,6 +198,64 @@ def analyze_levels_prop(
     )
 
 
+def analyze_levels_break(
+    parquet: str,
+    levels_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Determine break/update state for levels and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    levels = pd.read_csv(levels_csv, parse_dates=["time"])
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "levels.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+    break_cfg = profile_cfg.get("break_confirm", {})
+
+    cfg = LevelsCfgBreakUpdate(
+        break_mode=str(break_cfg.get("mode", LevelsCfgBreakUpdate.break_mode)),
+        atr_mult=float(break_cfg.get("atr_mult", LevelsCfgBreakUpdate.atr_mult)),
+        pips=float(break_cfg.get("pips", LevelsCfgBreakUpdate.pips)),
+        update_on_wick=bool(
+            profile_cfg.get("update_on_wick", LevelsCfgBreakUpdate.update_on_wick)
+        ),
+        max_update_distance_atr_mult=float(
+            profile_cfg.get(
+                "max_update_distance_atr_mult",
+                LevelsCfgBreakUpdate.max_update_distance_atr_mult,
+            )
+        ),
+        tick_size=float(profile_cfg.get("tick_size", LevelsCfgBreakUpdate.tick_size)),
+        pip_size=float(profile_cfg.get("pip_size", LevelsCfgBreakUpdate.pip_size)),
+    )
+
+    levels_state = apply_break_update(df, levels, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    levels_state.to_csv(out_path / "levels_state.csv", index=False)
+
+    n_levels = len(levels_state)
+    share_broken = (
+        float((levels_state["state"] == "broken").mean()) if n_levels else 0.0
+    )
+    broken_mask = levels_state["break_idx"] >= 0
+    time_to_break = levels_state.loc[broken_mask, "break_idx"] - levels_state.loc[
+        broken_mask, "end_idx"
+    ]
+    median_ttb = float(time_to_break.median()) if not time_to_break.empty else float("nan")
+
+    print(
+        f"levels={n_levels}, share_broken={share_broken:.2%}, "
+        f"median_time_to_break={median_ttb:.2f} (bars)"
+    )
+
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -224,6 +286,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outdir", required=True)
 
     p = sub.add_parser("analyze-levels-prop")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--levels", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-levels-break")
     p.add_argument("--parquet", required=True)
     p.add_argument("--levels", required=True)
     p.add_argument("--symbol", required=True)
@@ -265,6 +335,15 @@ def main() -> None:
         )
     elif args.command == "analyze-levels-prop":
         analyze_levels_prop(
+            parquet=args.parquet,
+            levels_csv=args.levels,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-levels-break":
+        analyze_levels_break(
             parquet=args.parquet,
             levels_csv=args.levels,
             symbol=args.symbol,
