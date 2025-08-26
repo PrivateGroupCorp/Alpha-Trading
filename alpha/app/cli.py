@@ -13,6 +13,10 @@ from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
 from alpha.core.validate import validate_ohlc_frame
 from alpha.levels.detector import LevelsCfgFormation, detect_levels_formation
+from alpha.levels.proportionality import (
+    LevelsCfgProportionality,
+    compute_levels_proportionality,
+)
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -122,6 +126,74 @@ def analyze_levels_formation(
     )
 
 
+def analyze_levels_prop(
+    parquet: str,
+    levels_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Compute proportionality tags for levels and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    levels = pd.read_csv(levels_csv, parse_dates=["time"])
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "levels.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+
+    cfg = LevelsCfgProportionality(
+        proportionality_ratio=float(
+            profile_cfg.get(
+                "proportionality_ratio", LevelsCfgProportionality.proportionality_ratio
+            )
+        ),
+        prop_ref_mode=str(
+            profile_cfg.get("prop_ref_mode", LevelsCfgProportionality.prop_ref_mode)
+        ),
+        atr_window=int(profile_cfg.get("atr_window", LevelsCfgProportionality.atr_window)),
+    )
+
+    levels_prop = compute_levels_proportionality(df, levels, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    levels_prop.to_csv(out_path / "levels_prop.csv", index=False)
+
+    n_levels = len(levels_prop)
+    weak_prop_share = float(levels_prop["weak_prop"].mean()) if n_levels else 0.0
+    leg_stats = levels_prop["leg_current"] if n_levels else pd.Series(dtype="float64")
+    stats = {
+        "mean": float(leg_stats.mean()) if n_levels else 0.0,
+        "median": float(leg_stats.median()) if n_levels else 0.0,
+        "p25": float(leg_stats.quantile(0.25)) if n_levels else 0.0,
+        "p75": float(leg_stats.quantile(0.75)) if n_levels else 0.0,
+    }
+    atr_series = atr(df, window=cfg.atr_window)
+    atr_vals = (
+        atr_series.iloc[levels_prop["end_idx"].astype(int)]
+        if n_levels
+        else pd.Series(dtype="float64")
+    )
+    corr = float(levels_prop["leg_current"].corr(atr_vals)) if n_levels > 1 else 0.0
+
+    summary = {
+        "n_levels": int(n_levels),
+        "weak_prop_share": weak_prop_share,
+        "leg_current_stats": stats,
+        "correlation_leg_atr": corr,
+    }
+    with (out_path / "levels_prop_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"weak_prop_share = {weak_prop_share:.2%}\n"
+        f"leg_current mean={stats['mean']:.6f} median={stats['median']:.6f}"
+    )
+
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -146,6 +218,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("analyze-levels-formation")
     p.add_argument("--parquet", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-levels-prop")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--levels", required=True)
     p.add_argument("--symbol", required=True)
     p.add_argument("--tf", required=True)
     p.add_argument("--profile", required=True)
@@ -178,6 +258,15 @@ def main() -> None:
     elif args.command == "analyze-levels-formation":
         analyze_levels_formation(
             parquet=args.parquet,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-levels-prop":
+        analyze_levels_prop(
+            parquet=args.parquet,
+            levels_csv=args.levels,
             symbol=args.symbol,
             tf=args.tf,
             profile=args.profile,

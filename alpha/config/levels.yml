@@ -1,7 +1,16 @@
 profiles:
   h1:
     tz: "UTC"
+    proportionality_ratio: 0.50
+    prop_ref_mode: "prev_leg_or_atr"
+    atr_window: 14
   m15:
     tz: "UTC"
+    proportionality_ratio: 0.50
+    prop_ref_mode: "prev_leg_or_atr"
+    atr_window: 14
   m1:
     tz: "UTC"
+    proportionality_ratio: 0.60
+    prop_ref_mode: "prev_leg_or_atr"
+    atr_window: 14
