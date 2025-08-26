@@ -21,6 +21,7 @@ from alpha.levels.break_update import (
     LevelsCfgBreakUpdate,
     apply_break_update,
 )
+from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -256,6 +257,52 @@ def analyze_levels_break(
     )
 
 
+def analyze_levels_metrics(
+    parquet: str,
+    levels_state_csv: str,
+    symbol: str,
+    tf: str,
+    eval_profile: str,
+    outdir: str,
+) -> None:
+    """Compute quality metrics and scores for detected levels."""
+
+    df = pd.read_parquet(parquet)
+    levels_state = pd.read_csv(levels_state_csv)
+    for col in ["time", "break_time", "first_touch_time"]:
+        if col in levels_state.columns:
+            levels_state[col] = pd.to_datetime(levels_state[col], utc=True, errors="coerce")
+
+    metrics_row_df, per_level_df = compute_levels_metrics(df, levels_state)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "eval.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        eval_cfg = yaml.safe_load(fh) or {}
+
+    scores = score_levels(metrics_row_df.iloc[0], tf=eval_profile, eval_cfg=eval_cfg)
+    metrics_row_df = metrics_row_df.assign(**scores)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    metrics_row_df.to_csv(out_path / "levels_metrics.csv", index=False)
+    with (out_path / "levels_metrics.json").open("w", encoding="utf-8") as fh:
+        json.dump(metrics_row_df.iloc[0].to_dict(), fh, indent=2)
+    if not per_level_df.empty:
+        per_level_df.to_csv(out_path / "levels_per_level_metrics.csv", index=False)
+
+    row = metrics_row_df.iloc[0]
+    print(
+        "density={:.2f} share_broken={:.2%} weak_prop_share={:.2%} "
+        "ttb_median={:.2f} score_total={:.2f}".format(
+            row.get("density_per_1000", float("nan")),
+            row.get("share_broken", float("nan")),
+            row.get("weak_prop_share", float("nan")),
+            row.get("ttb_median", float("nan")),
+            row.get("score_total", float("nan")),
+        )
+    )
+
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -299,6 +346,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol", required=True)
     p.add_argument("--tf", required=True)
     p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-levels-metrics")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--levels-state", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--eval-profile", required=True)
     p.add_argument("--outdir", required=True)
 
     return parser
@@ -349,6 +404,15 @@ def main() -> None:
             symbol=args.symbol,
             tf=args.tf,
             profile=args.profile,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-levels-metrics":
+        analyze_levels_metrics(
+            parquet=args.parquet,
+            levels_state_csv=args.levels_state,
+            symbol=args.symbol,
+            tf=args.tf,
+            eval_profile=args.eval_profile,
             outdir=args.outdir,
         )
     else:

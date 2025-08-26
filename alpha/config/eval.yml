@@ -1,0 +1,26 @@
+levels_scoring:
+  weights:
+    density: 0.30
+    share_broken: 0.30
+    weak_prop: 0.15
+    ttb: 0.15
+    balance: 0.10
+  targets:
+    H1:
+      density: { good: [8, 20], soft: [5, 28] }
+      share_broken: { good: [0.45, 0.75], soft: [0.35, 0.85] }
+      weak_prop_share: { good: [0.00, 0.30], soft: [0.00, 0.40] }
+      ttb_median: { good: [6, 20], soft: [3, 40] }
+      balance_peak_trough: { good: [0.8, 1.2], soft: [0.6, 1.4] }
+    M15:
+      density: { good: [10, 26], soft: [6, 32] }
+      share_broken: { good: [0.45, 0.70], soft: [0.35, 0.80] }
+      weak_prop_share: { good: [0.00, 0.35], soft: [0.00, 0.45] }
+      ttb_median: { good: [8, 28], soft: [4, 44] }
+      balance_peak_trough: { good: [0.8, 1.2], soft: [0.6, 1.4] }
+    M1:
+      density: { good: [14, 36], soft: [8, 44] }
+      share_broken: { good: [0.40, 0.65], soft: [0.30, 0.75] }
+      weak_prop_share: { good: [0.00, 0.40], soft: [0.00, 0.50] }
+      ttb_median: { good: [10, 36], soft: [6, 60] }
+      balance_peak_trough: { good: [0.8, 1.2], soft: [0.6, 1.4] }
