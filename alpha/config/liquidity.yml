@@ -12,6 +12,26 @@ profiles:
     formatting:
       pip_size: 0.0001
       tick_size: 0.0
+sweep:
+  confirm_mode: "body"
+  reclaim_mode: "body_back"
+  reclaim_n_bars: 3
+  min_pen_atr_mult: 0.10
+  max_pen_atr_mult: 1.00
+  max_duration_bars: 10
+  link_events_window_bars: 20
+  atr_window: 14
+  pip_size: 0.0001
+  tick_size: 0.0
+  quality_weights:
+    penetration_norm: 0.30
+    fast_reclaim: 0.35
+    context_eq: 0.20
+    asia_alignment: 0.15
+  quality_grades:
+    A: [0.75, 1.00]
+    B: [0.55, 0.75]
+    C: [0.00, 0.55]
 eq_cluster:
   eq_atr_tol: 0.06
   alt_pip_tol: 0.0
