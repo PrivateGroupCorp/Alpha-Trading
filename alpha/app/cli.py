@@ -25,6 +25,7 @@ from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
 from alpha.viz.levels import LevelsVizCfg, build_level_segments, plot_levels
 from alpha.structure.swings import SwingsCfg, build_swings, summarize_swings
 from alpha.structure.events import EventsCfg, detect_bos_choch, summarize_events
+from alpha.structure.quality import QualityCfg, qualify_events, summarize_quality
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -499,6 +500,74 @@ def analyze_structure_events(
         f"median_margin_norm={summary['median_break_margin_norm']:.3f}"
     )
 
+
+def analyze_structure_quality(
+    parquet: str,
+    events_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Qualify structure events and write quality artifacts."""
+
+    df = pd.read_parquet(parquet)
+    events_df = pd.read_csv(events_csv, parse_dates=["time"])
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "structure.yml"
+    cfg_dict = {}
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_dict = yaml.safe_load(fh) or {}
+    profile_cfg = cfg_dict.get("profiles", {}).get(profile, {})
+
+    cfg = QualityCfg(
+        min_break_margin_norm=float(
+            profile_cfg.get("min_break_margin_norm", QualityCfg.min_break_margin_norm)
+        ),
+        ft_bars_min=int(profile_cfg.get("ft_bars_min", QualityCfg.ft_bars_min)),
+        ft_backslide_tol_mult=float(
+            profile_cfg.get(
+                "ft_backslide_tol_mult", QualityCfg.ft_backslide_tol_mult
+            )
+        ),
+        ft_distance_atr_mult=float(
+            profile_cfg.get(
+                "ft_distance_atr_mult", QualityCfg.ft_distance_atr_mult
+            )
+        ),
+        retest_window_bars=int(
+            profile_cfg.get("retest_window_bars", QualityCfg.retest_window_bars)
+        ),
+        retest_tol_atr_mult=float(
+            profile_cfg.get("retest_tol_atr_mult", QualityCfg.retest_tol_atr_mult)
+        ),
+        sweep_window_bars=int(
+            profile_cfg.get("sweep_window_bars", QualityCfg.sweep_window_bars)
+        ),
+        sweep_tol_atr_mult=float(
+            profile_cfg.get("sweep_tol_atr_mult", QualityCfg.sweep_tol_atr_mult)
+        ),
+        atr_window=int(profile_cfg.get("atr_window", QualityCfg.atr_window)),
+        quality_weights=profile_cfg.get("quality_weights", QualityCfg().quality_weights),
+        quality_grades=profile_cfg.get("quality_grades", QualityCfg().quality_grades),
+    )
+
+    events_q = qualify_events(df, events_df, cfg)
+    summary = summarize_quality(events_q, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    events_q.to_csv(out_path / "events_qualified.csv", index=False)
+    with (out_path / "events_quality_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"share_valid={summary['share_valid']:.2%}, grade_counts={summary['grade_counts']}, "
+        f"med_ft_bars={summary['med_ft_bars']:.2f}, retest_rate={summary['retest_rate']:.2%}, "
+        f"sweep_rate={summary['sweep_rate']:.2%}"
+    )
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -573,6 +642,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("analyze-structure-events")
     p.add_argument("--parquet", required=True)
     p.add_argument("--swings", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-structure-quality")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--events", required=True)
     p.add_argument("--symbol", required=True)
     p.add_argument("--tf", required=True)
     p.add_argument("--profile", required=True)
@@ -661,6 +738,15 @@ def main() -> None:
         analyze_structure_events(
             parquet=args.parquet,
             swings_csv=args.swings,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-structure-quality":
+        analyze_structure_quality(
+            parquet=args.parquet,
+            events_csv=args.events,
             symbol=args.symbol,
             tf=args.tf,
             profile=args.profile,

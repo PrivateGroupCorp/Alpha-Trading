@@ -7,6 +7,23 @@ profiles:
     atr_window: 14
     event_cooldown_bars: 3
     confirm_with_body_only: true
+    min_break_margin_norm: 0.25
+    ft_bars_min: 2
+    ft_backslide_tol_mult: 0.10
+    ft_distance_atr_mult: 0.20
+    retest_window_bars: 20
+    retest_tol_atr_mult: 0.15
+    sweep_window_bars: 20
+    sweep_tol_atr_mult: 0.10
+    quality_weights:
+      break_margin_norm: 0.35
+      followthrough: 0.35
+      retest: 0.15
+      sweep: 0.15
+    quality_grades:
+      A: [0.75, 1.00]
+      B: [0.55, 0.75]
+      C: [0.00, 0.55]
   m15:
     use_only_strong_swings: true
     swing_merge_atr_mult: 0.10
@@ -15,3 +32,20 @@ profiles:
     atr_window: 14
     event_cooldown_bars: 3
     confirm_with_body_only: true
+    min_break_margin_norm: 0.30
+    ft_bars_min: 2
+    ft_backslide_tol_mult: 0.12
+    ft_distance_atr_mult: 0.25
+    retest_window_bars: 25
+    retest_tol_atr_mult: 0.18
+    sweep_window_bars: 20
+    sweep_tol_atr_mult: 0.12
+    quality_weights:
+      break_margin_norm: 0.35
+      followthrough: 0.35
+      retest: 0.15
+      sweep: 0.15
+    quality_grades:
+      A: [0.75, 1.00]
+      B: [0.55, 0.75]
+      C: [0.00, 0.55]
