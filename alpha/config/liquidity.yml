@@ -1,5 +1,16 @@
-asia_session:
-  start_h: 0
-  end_h: 8
+profiles:
+  h1:
+    asia_session:
+      start_h: 0
+      end_h: 8
+      tz_source: "UTC"
+    post_session:
+      breakout_lookahead_h: 6
+      confirm_with_body: true
+    atr:
+      window: 14
+    formatting:
+      pip_size: 0.0001
+      tick_size: 0.0
 cluster:
   eq_atr_tol: 0.06

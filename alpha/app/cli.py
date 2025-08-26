@@ -31,6 +31,7 @@ from alpha.viz.structure import (
     build_structure_segments_and_markers,
     plot_structure,
 )
+from alpha.liquidity.asia import AsiaCfg, asia_range_daily, summarize_asia_ranges
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -92,6 +93,63 @@ def indicators(
     print(
         f"ATR min={summary['atr_min']:.6f} max={summary['atr_max']:.6f} "
         f"mean={summary['atr_mean']:.6f} | doji={summary['doji_count']}"
+    )
+
+
+def analyze_liquidity_asia(
+    parquet: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Extract Asia session ranges and post-session interactions."""
+
+    df = pd.read_parquet(parquet)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "liquidity.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+    asia_session = profile_cfg.get("asia_session", {})
+    post_session = profile_cfg.get("post_session", {})
+    atr_cfg = profile_cfg.get("atr", {})
+    fmt_cfg = profile_cfg.get("formatting", {})
+
+    cfg = AsiaCfg(
+        start_h=int(asia_session.get("start_h", AsiaCfg.start_h)),
+        end_h=int(asia_session.get("end_h", AsiaCfg.end_h)),
+        tz_source=str(asia_session.get("tz_source", AsiaCfg.tz_source)),
+        breakout_lookahead_h=int(
+            post_session.get(
+                "breakout_lookahead_h", AsiaCfg.breakout_lookahead_h
+            )
+        ),
+        confirm_with_body=bool(
+            post_session.get("confirm_with_body", AsiaCfg.confirm_with_body)
+        ),
+        atr_window=int(atr_cfg.get("window", AsiaCfg.atr_window)),
+        pip_size=float(fmt_cfg.get("pip_size", AsiaCfg.pip_size)),
+        tick_size=float(fmt_cfg.get("tick_size", AsiaCfg.tick_size)),
+    )
+
+    daily_df = asia_range_daily(df, cfg)
+    summary = summarize_asia_ranges(daily_df, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    daily_df.to_csv(out_path / "asia_range_daily.csv", index=False)
+    with (out_path / "asia_range_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+    spans_df = daily_df[["date", "start_ts", "end_ts"]]
+    spans_df.to_csv(out_path / "asia_session_spans.csv", index=False)
+
+    median_width = float(daily_df["width_pips"].median(skipna=True))
+    print(
+        f"median width(pips)={median_width:.2f} "
+        f"break_up_share={summary['break_up_share']:.3f} "
+        f"break_down_share={summary['break_down_share']:.3f} "
+        f"both_touch_share={summary['both_touch_share']:.3f}"
     )
 
 
@@ -667,6 +725,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--doji-body-ratio", type=float, default=0.20)
     p.add_argument("--outdir", required=True)
 
+    p = sub.add_parser("analyze-liquidity-asia")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
     p = sub.add_parser("analyze-levels-formation")
     p.add_argument("--parquet", required=True)
     p.add_argument("--symbol", required=True)
@@ -765,6 +830,14 @@ def main() -> None:
             atr_window=args.atr_window,
             atr_method=args.atr_method,
             doji_body_ratio=args.doji_body_ratio,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-liquidity-asia":
+        analyze_liquidity_asia(
+            parquet=args.parquet,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
             outdir=args.outdir,
         )
     elif args.command == "analyze-levels-formation":
