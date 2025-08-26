@@ -4,13 +4,37 @@ profiles:
     proportionality_ratio: 0.50
     prop_ref_mode: "prev_leg_or_atr"
     atr_window: 14
+    break_confirm:
+      mode: "atr"
+      atr_mult: 0.15
+      pips: 15
+    update_on_wick: true
+    max_update_distance_atr_mult: 2.0
+    tick_size: 0.0
+    pip_size: 0.0001
   m15:
     tz: "UTC"
     proportionality_ratio: 0.50
     prop_ref_mode: "prev_leg_or_atr"
     atr_window: 14
+    break_confirm:
+      mode: "atr"
+      atr_mult: 0.15
+      pips: 15
+    update_on_wick: true
+    max_update_distance_atr_mult: 2.0
+    tick_size: 0.0
+    pip_size: 0.0001
   m1:
     tz: "UTC"
     proportionality_ratio: 0.60
     prop_ref_mode: "prev_leg_or_atr"
     atr_window: 14
+    break_confirm:
+      mode: "atr"
+      atr_mult: 0.15
+      pips: 15
+    update_on_wick: true
+    max_update_distance_atr_mult: 2.0
+    tick_size: 0.0
+    pip_size: 0.0001
