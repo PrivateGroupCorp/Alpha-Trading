@@ -39,6 +39,7 @@ from alpha.liquidity.eq_clusters import (
     score_clusters,
     summarize_eq,
 )
+from alpha.liquidity.sweep import SweepCfg, detect_sweeps, summarize_sweeps
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -224,6 +225,73 @@ def analyze_liquidity_eq(
         f"clusters_valid={len(clusters)} "
         f"share_eqh={share_eqh:.3f} share_eql={share_eql:.3f} "
         f"median_width_pips={median_width_pips:.2f} median_score={median_score:.3f}"
+    )
+
+
+def analyze_liquidity_sweep(
+    parquet: str,
+    symbol: str,
+    tf: str,
+    outdir: str,
+    profile: str = "h1",
+    eq_clusters_csv: str | None = None,
+    asia_daily_csv: str | None = None,
+    events_csv: str | None = None,
+) -> None:
+    """Detect liquidity sweeps and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "liquidity.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    global_cfg = data.get("sweep", {})
+    profile_cfg = data.get("profiles", {}).get(profile, {}).get("sweep", {})
+    cfg_dict = {**global_cfg, **profile_cfg}
+    cfg = SweepCfg(**cfg_dict)
+
+    eq_clusters = (
+        pd.read_csv(eq_clusters_csv, parse_dates=["first_time", "last_time"])
+        if eq_clusters_csv
+        else pd.DataFrame()
+    )
+    asia_daily = (
+        pd.read_csv(asia_daily_csv, parse_dates=["date", "start_ts", "end_ts"])
+        if asia_daily_csv
+        else pd.DataFrame()
+    )
+    events_df = pd.read_csv(events_csv) if events_csv else None
+
+    sweeps = detect_sweeps(df, eq_clusters, asia_daily, events_df, cfg)
+    summary = summarize_sweeps(sweeps, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    sweeps.to_csv(out_path / "sweeps.csv", index=False)
+    with (out_path / "sweeps_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+
+    if not sweeps.empty:
+        y_edge = sweeps.apply(
+            lambda r: r["cluster_price_center"] if r["scope"] == "eq_cluster" else r["edge_price"],
+            axis=1,
+        )
+        segments = sweeps[
+            ["sweep_id", "scope", "side", "pen_time", "reclaim_time"]
+        ].copy()
+        segments["y_edge"] = y_edge
+        segments.to_csv(out_path / "sweep_segments.csv", index=False)
+
+    grade_counts = sweeps["quality_grade"].value_counts().to_dict()
+    link_rate = (
+        float(sweeps["linked_event_id"].notna().mean()) if not sweeps.empty else 0.0
+    )
+    median_pen = (
+        float(sweeps["pen_depth_pips"].median()) if not sweeps.empty else float("nan")
+    )
+    print(
+        f"sweeps={len(sweeps)} grade_counts={grade_counts} "
+        f"link_rate={link_rate:.2f} median_pen_pips={median_pen:.2f}"
     )
 
 
@@ -784,6 +852,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile", required=True)
     p.add_argument("--outdir", required=True)
 
+    p = sub.add_parser("analyze-liquidity-sweep")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--eq-clusters")
+    p.add_argument("--asia-daily")
+    p.add_argument("--events")
+
     p = sub.add_parser("analyze-levels-formation")
     p.add_argument("--parquet", required=True)
     p.add_argument("--symbol", required=True)
@@ -891,6 +969,17 @@ def main() -> None:
             tf=args.tf,
             profile=args.profile,
             outdir=args.outdir,
+        )
+    elif args.command == "analyze-liquidity-sweep":
+        analyze_liquidity_sweep(
+            parquet=args.parquet,
+            symbol=args.symbol,
+            tf=args.tf,
+            outdir=args.outdir,
+            profile=args.profile,
+            eq_clusters_csv=args.eq_clusters,
+            asia_daily_csv=args.asia_daily,
+            events_csv=args.events,
         )
     elif args.command == "analyze-levels-formation":
         analyze_levels_formation(
