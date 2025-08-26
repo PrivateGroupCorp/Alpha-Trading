@@ -32,6 +32,13 @@ from alpha.viz.structure import (
     plot_structure,
 )
 from alpha.liquidity.asia import AsiaCfg, asia_range_daily, summarize_asia_ranges
+from alpha.liquidity.eq_clusters import (
+    EqCfg,
+    detect_eq_touches,
+    build_eq_clusters,
+    score_clusters,
+    summarize_eq,
+)
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -121,13 +128,9 @@ def analyze_liquidity_asia(
         end_h=int(asia_session.get("end_h", AsiaCfg.end_h)),
         tz_source=str(asia_session.get("tz_source", AsiaCfg.tz_source)),
         breakout_lookahead_h=int(
-            post_session.get(
-                "breakout_lookahead_h", AsiaCfg.breakout_lookahead_h
-            )
+            post_session.get("breakout_lookahead_h", AsiaCfg.breakout_lookahead_h)
         ),
-        confirm_with_body=bool(
-            post_session.get("confirm_with_body", AsiaCfg.confirm_with_body)
-        ),
+        confirm_with_body=bool(post_session.get("confirm_with_body", AsiaCfg.confirm_with_body)),
         atr_window=int(atr_cfg.get("window", AsiaCfg.atr_window)),
         pip_size=float(fmt_cfg.get("pip_size", AsiaCfg.pip_size)),
         tick_size=float(fmt_cfg.get("tick_size", AsiaCfg.tick_size)),
@@ -153,9 +156,78 @@ def analyze_liquidity_asia(
     )
 
 
-def analyze_levels_formation(
-    parquet: str, symbol: str, tf: str, profile: str, outdir: str
+def analyze_liquidity_eq(
+    parquet: str,
+    symbol: str,
+    tf: str,
+    outdir: str,
+    profile: str = "h1",
+    swings_csv: str | None = None,
+    asia_daily_csv: str | None = None,
 ) -> None:
+    """Detect equal-high/equal-low clusters and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "liquidity.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    global_cfg = data.get("eq_cluster", {})
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+    profile_eq = profile_cfg.get("eq_cluster", {})
+    cfg_dict = {**global_cfg, **profile_eq}
+    cfg = EqCfg(**cfg_dict)
+
+    swings_df = pd.read_csv(swings_csv) if swings_csv else None
+    if swings_df is not None and "time" in swings_df.columns:
+        swings_df["time"] = pd.to_datetime(swings_df["time"], utc=True, errors="coerce")
+
+    asia_df = None
+    if asia_daily_csv:
+        asia_df = pd.read_csv(asia_daily_csv, parse_dates=["date"])
+
+    touches = detect_eq_touches(df, cfg, swings_df)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    touches.to_csv(out_path / "eq_touches.csv", index=False)
+
+    clusters = build_eq_clusters(df, touches, cfg, asia_df)
+    clusters = score_clusters(clusters, cfg)
+    clusters.to_csv(out_path / "eq_clusters.csv", index=False)
+
+    segments = clusters[
+        [
+            "cluster_id",
+            "side",
+            "price_center",
+            "first_time",
+            "last_time",
+            "price_center",
+            "width",
+        ]
+    ].rename(columns={"price_center": "y"})
+    segments.to_csv(out_path / "eq_segments.csv", index=False)
+
+    summary = summarize_eq(clusters, touches, cfg)
+    with (out_path / "eq_clusters_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+
+    share_eqh = float((clusters["side"] == "eqh").mean()) if not clusters.empty else 0.0
+    share_eql = float((clusters["side"] == "eql").mean()) if not clusters.empty else 0.0
+    median_width_pips = (
+        float(clusters["width_pips"].median()) if not clusters.empty else float("nan")
+    )
+    median_score = float(clusters["score"].median()) if not clusters.empty else float("nan")
+    print(
+        f"touches={len(touches)} "
+        f"clusters_valid={len(clusters)} "
+        f"share_eqh={share_eqh:.3f} share_eql={share_eql:.3f} "
+        f"median_width_pips={median_width_pips:.2f} median_score={median_score:.3f}"
+    )
+
+
+def analyze_levels_formation(parquet: str, symbol: str, tf: str, profile: str, outdir: str) -> None:
     """Detect formation levels from OHLC data and write artifacts."""
     df = pd.read_parquet(parquet)
 
@@ -218,13 +290,9 @@ def analyze_levels_prop(
 
     cfg = LevelsCfgProportionality(
         proportionality_ratio=float(
-            profile_cfg.get(
-                "proportionality_ratio", LevelsCfgProportionality.proportionality_ratio
-            )
+            profile_cfg.get("proportionality_ratio", LevelsCfgProportionality.proportionality_ratio)
         ),
-        prop_ref_mode=str(
-            profile_cfg.get("prop_ref_mode", LevelsCfgProportionality.prop_ref_mode)
-        ),
+        prop_ref_mode=str(profile_cfg.get("prop_ref_mode", LevelsCfgProportionality.prop_ref_mode)),
         atr_window=int(profile_cfg.get("atr_window", LevelsCfgProportionality.atr_window)),
     )
 
@@ -289,9 +357,7 @@ def analyze_levels_break(
         break_mode=str(break_cfg.get("mode", LevelsCfgBreakUpdate.break_mode)),
         atr_mult=float(break_cfg.get("atr_mult", LevelsCfgBreakUpdate.atr_mult)),
         pips=float(break_cfg.get("pips", LevelsCfgBreakUpdate.pips)),
-        update_on_wick=bool(
-            profile_cfg.get("update_on_wick", LevelsCfgBreakUpdate.update_on_wick)
-        ),
+        update_on_wick=bool(profile_cfg.get("update_on_wick", LevelsCfgBreakUpdate.update_on_wick)),
         max_update_distance_atr_mult=float(
             profile_cfg.get(
                 "max_update_distance_atr_mult",
@@ -309,13 +375,11 @@ def analyze_levels_break(
     levels_state.to_csv(out_path / "levels_state.csv", index=False)
 
     n_levels = len(levels_state)
-    share_broken = (
-        float((levels_state["state"] == "broken").mean()) if n_levels else 0.0
-    )
+    share_broken = float((levels_state["state"] == "broken").mean()) if n_levels else 0.0
     broken_mask = levels_state["break_idx"] >= 0
-    time_to_break = levels_state.loc[broken_mask, "break_idx"] - levels_state.loc[
-        broken_mask, "end_idx"
-    ]
+    time_to_break = (
+        levels_state.loc[broken_mask, "break_idx"] - levels_state.loc[broken_mask, "end_idx"]
+    )
     median_ttb = float(time_to_break.median()) if not time_to_break.empty else float("nan")
 
     print(
@@ -368,8 +432,6 @@ def analyze_levels_metrics(
             row.get("score_total", float("nan")),
         )
     )
-
-
 
 
 def analyze_levels_viz(
@@ -474,9 +536,7 @@ def analyze_structure_swings(
         ),
         min_gap_bars=int(profile_cfg.get("min_gap_bars", SwingsCfg.min_gap_bars)),
         min_price_delta_atr_mult=float(
-            profile_cfg.get(
-                "min_price_delta_atr_mult", SwingsCfg.min_price_delta_atr_mult
-            )
+            profile_cfg.get("min_price_delta_atr_mult", SwingsCfg.min_price_delta_atr_mult)
         ),
         keep_latest_on_tie=bool(
             profile_cfg.get("keep_latest_on_tie", SwingsCfg.keep_latest_on_tie)
@@ -537,14 +597,10 @@ def analyze_structure_events(
         ),
         atr_window=int(profile_cfg.get("atr_window", EventsCfg.atr_window)),
         event_cooldown_bars=int(
-            profile_cfg.get(
-                "event_cooldown_bars", EventsCfg.event_cooldown_bars
-            )
+            profile_cfg.get("event_cooldown_bars", EventsCfg.event_cooldown_bars)
         ),
         confirm_with_body_only=bool(
-            profile_cfg.get(
-                "confirm_with_body_only", EventsCfg.confirm_with_body_only
-            )
+            profile_cfg.get("confirm_with_body_only", EventsCfg.confirm_with_body_only)
         ),
     )
 
@@ -590,14 +646,10 @@ def analyze_structure_quality(
         ),
         ft_bars_min=int(profile_cfg.get("ft_bars_min", QualityCfg.ft_bars_min)),
         ft_backslide_tol_mult=float(
-            profile_cfg.get(
-                "ft_backslide_tol_mult", QualityCfg.ft_backslide_tol_mult
-            )
+            profile_cfg.get("ft_backslide_tol_mult", QualityCfg.ft_backslide_tol_mult)
         ),
         ft_distance_atr_mult=float(
-            profile_cfg.get(
-                "ft_distance_atr_mult", QualityCfg.ft_distance_atr_mult
-            )
+            profile_cfg.get("ft_distance_atr_mult", QualityCfg.ft_distance_atr_mult)
         ),
         retest_window_bars=int(
             profile_cfg.get("retest_window_bars", QualityCfg.retest_window_bars)
@@ -605,9 +657,7 @@ def analyze_structure_quality(
         retest_tol_atr_mult=float(
             profile_cfg.get("retest_tol_atr_mult", QualityCfg.retest_tol_atr_mult)
         ),
-        sweep_window_bars=int(
-            profile_cfg.get("sweep_window_bars", QualityCfg.sweep_window_bars)
-        ),
+        sweep_window_bars=int(profile_cfg.get("sweep_window_bars", QualityCfg.sweep_window_bars)),
         sweep_tol_atr_mult=float(
             profile_cfg.get("sweep_tol_atr_mult", QualityCfg.sweep_tol_atr_mult)
         ),
@@ -703,7 +753,9 @@ def analyze_structure_viz(
         seg_full.to_csv(out_path / "structure_segments_full.csv", index=False)
         mark_full.to_csv(out_path / "structure_markers_full.csv", index=False)
 
+
 # ---- CLI wiring ----
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
