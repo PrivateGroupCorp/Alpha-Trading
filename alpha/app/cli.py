@@ -23,6 +23,7 @@ from alpha.levels.break_update import (
 )
 from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
 from alpha.viz.levels import LevelsVizCfg, build_level_segments, plot_levels
+from alpha.structure.swings import SwingsCfg, build_swings, summarize_swings
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -376,6 +377,69 @@ def analyze_levels_viz(
         seg_full.to_csv(out_path / "levels_segments_full.csv", index=False)
         mark_full.to_csv(out_path / "levels_markers_full.csv", index=False)
 
+
+def analyze_structure_swings(
+    parquet: str,
+    levels_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Build structure swings and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    levels_df = pd.read_csv(levels_csv)
+    if "time" in levels_df.columns:
+        levels_df["time"] = pd.to_datetime(levels_df["time"], utc=True, errors="coerce")
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "structure.yml"
+    cfg_dict = {}
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_dict = yaml.safe_load(fh) or {}
+    profile_cfg = cfg_dict.get("profiles", {}).get(profile, {})
+
+    cfg = SwingsCfg(
+        use_only_strong_swings=bool(
+            profile_cfg.get("use_only_strong_swings", SwingsCfg.use_only_strong_swings)
+        ),
+        swing_merge_atr_mult=float(
+            profile_cfg.get("swing_merge_atr_mult", SwingsCfg.swing_merge_atr_mult)
+        ),
+        min_gap_bars=int(profile_cfg.get("min_gap_bars", SwingsCfg.min_gap_bars)),
+        min_price_delta_atr_mult=float(
+            profile_cfg.get(
+                "min_price_delta_atr_mult", SwingsCfg.min_price_delta_atr_mult
+            )
+        ),
+        keep_latest_on_tie=bool(
+            profile_cfg.get("keep_latest_on_tie", SwingsCfg.keep_latest_on_tie)
+        ),
+        atr_window=int(profile_cfg.get("atr_window", SwingsCfg.atr_window)),
+    )
+
+    swings_df = build_swings(df, levels_df, cfg)
+    summary = summarize_swings(swings_df, levels_df, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    swings_out = swings_df.copy()
+    swings_out["src_level_ids"] = swings_out["src_level_ids"].apply(
+        lambda ids: ",".join(map(str, ids))
+    )
+    swings_out.to_csv(out_path / "swings.csv", index=False)
+
+    with (out_path / "swings_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"levels_in={summary['n_levels_in']}, levels_used={summary['n_levels_used']}, "
+        f"swings={summary['n_swings']}, merge_same={summary['merge_same_type_count']}, "
+        f"merge_nearby={summary['merge_nearby_count']}"
+    )
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -439,6 +503,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--last-n-bars", type=int, default=500)
     p.add_argument("--full", action="store_true")
 
+    p = sub.add_parser("analyze-structure-swings")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--levels", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
 
     return parser
 
@@ -499,7 +570,6 @@ def main() -> None:
             eval_profile=args.eval_profile,
             outdir=args.outdir,
         )
-    
     elif args.command == "analyze-levels-viz":
         analyze_levels_viz(
             parquet=args.parquet,
@@ -510,6 +580,15 @@ def main() -> None:
             outdir=args.outdir,
             last_n_bars=args.last_n_bars,
             full=args.full,
+        )
+    elif args.command == "analyze-structure-swings":
+        analyze_structure_swings(
+            parquet=args.parquet,
+            levels_csv=args.levels,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
         )
     else:
         parser.print_help()
