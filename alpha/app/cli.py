@@ -22,6 +22,7 @@ from alpha.levels.break_update import (
     apply_break_update,
 )
 from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
+from alpha.viz.levels import LevelsVizCfg, build_level_segments, plot_levels
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -303,6 +304,78 @@ def analyze_levels_metrics(
     )
 
 
+
+
+def analyze_levels_viz(
+    parquet: str,
+    levels_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+    last_n_bars: int = 500,
+    full: bool = False,
+) -> None:
+    """Plot detected levels on price chart and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    levels_df = pd.read_csv(levels_csv)
+    for col in ["time", "break_time", "first_touch_time"]:
+        if col in levels_df.columns:
+            levels_df[col] = pd.to_datetime(levels_df[col], utc=True, errors="coerce")
+
+    segments_df, markers_df = build_level_segments(
+        df, levels_df, window_last_n=last_n_bars if last_n_bars else None
+    )
+    tail_df = df.tail(last_n_bars) if last_n_bars else df
+
+    viz_cfg_path = Path(__file__).resolve().parents[1] / "config" / "viz.yml"
+    cfg_dict = {}
+    if viz_cfg_path.exists():
+        with viz_cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_dict = (yaml.safe_load(fh) or {}).get("levels_plot", {})
+    cfg = LevelsVizCfg(**cfg_dict)
+
+    levels_cfg_path = Path(__file__).resolve().parents[1] / "config" / "levels.yml"
+    tick_size = cfg.tick_size
+    if levels_cfg_path.exists():
+        with levels_cfg_path.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        profile_cfg = data.get("profiles", {}).get(profile, {})
+        tick_size = float(profile_cfg.get("tick_size", tick_size))
+    cfg.tick_size = tick_size
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    suffix = f"last{last_n_bars}" if last_n_bars else "full"
+    title = f"{symbol} {tf} — Levels ({'last ' + str(last_n_bars) if last_n_bars else 'full'})"
+
+    plot_levels(
+        tail_df,
+        segments_df,
+        markers_df,
+        cfg,
+        str(out_path / f"levels_{suffix}.png"),
+        title,
+    )
+
+    segments_df.to_csv(out_path / f"levels_segments_{suffix}.csv", index=False)
+    markers_df.to_csv(out_path / f"levels_markers_{suffix}.csv", index=False)
+
+    if full and last_n_bars:
+        seg_full, mark_full = build_level_segments(df, levels_df, window_last_n=None)
+        plot_levels(
+            df,
+            seg_full,
+            mark_full,
+            cfg,
+            str(out_path / "levels_full.png"),
+            f"{symbol} {tf} — Levels (full)",
+        )
+        seg_full.to_csv(out_path / "levels_segments_full.csv", index=False)
+        mark_full.to_csv(out_path / "levels_markers_full.csv", index=False)
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -355,6 +428,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tf", required=True)
     p.add_argument("--eval-profile", required=True)
     p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-levels-viz")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--levels", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--last-n-bars", type=int, default=500)
+    p.add_argument("--full", action="store_true")
+
 
     return parser
 
@@ -414,6 +498,18 @@ def main() -> None:
             tf=args.tf,
             eval_profile=args.eval_profile,
             outdir=args.outdir,
+        )
+    
+    elif args.command == "analyze-levels-viz":
+        analyze_levels_viz(
+            parquet=args.parquet,
+            levels_csv=args.levels,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+            last_n_bars=args.last_n_bars,
+            full=args.full,
         )
     else:
         parser.print_help()
