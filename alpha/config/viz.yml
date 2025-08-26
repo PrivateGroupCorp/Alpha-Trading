@@ -16,3 +16,32 @@ levels_plot:
   dpi: 150
   fig_w: 12
   fig_h: 6
+
+structure_plot:
+  last_n_bars: 500
+  zigzag_linewidth: 1.8
+  price_linewidth: 1.0
+  swing_marker_size: 28
+  event_marker_size: 60
+  alpha_zigzag: 0.9
+  alpha_price: 0.8
+  colors:
+    price: "#6b7280"
+    swing_peak: "#ef4444"
+    swing_trough: "#0ea5e9"
+    bos_up: "#22c55e"
+    bos_down: "#ef4444"
+    choch_up: "#a3e635"
+    choch_down: "#fb7185"
+    invalid_event: "#9ca3af"
+  grade_palette:
+    A: "#22c55e"
+    B: "#f59e0b"
+    C: "#ef4444"
+  show_only_valid: true
+  annotate_labels: true
+  show_quality_grade: true
+  show_ft_window: false
+  dpi: 150
+  fig_w: 12
+  fig_h: 6

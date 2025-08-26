@@ -26,6 +26,11 @@ from alpha.viz.levels import LevelsVizCfg, build_level_segments, plot_levels
 from alpha.structure.swings import SwingsCfg, build_swings, summarize_swings
 from alpha.structure.events import EventsCfg, detect_bos_choch, summarize_events
 from alpha.structure.quality import QualityCfg, qualify_events, summarize_quality
+from alpha.viz.structure import (
+    StructureVizCfg,
+    build_structure_segments_and_markers,
+    plot_structure,
+)
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -568,6 +573,78 @@ def analyze_structure_quality(
         f"sweep_rate={summary['sweep_rate']:.2%}"
     )
 
+
+def analyze_structure_viz(
+    parquet: str,
+    swings_csv: str,
+    events_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+    last_n_bars: int = 500,
+    full: bool = False,
+) -> None:
+    """Plot swings and structure events on price chart and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    swings_df = pd.read_csv(swings_csv, parse_dates=["time"])
+    events_df = pd.read_csv(events_csv, parse_dates=["time"])
+
+    viz_cfg_path = Path(__file__).resolve().parents[1] / "config" / "viz.yml"
+    cfg_dict = {}
+    if viz_cfg_path.exists():
+        with viz_cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_dict = (yaml.safe_load(fh) or {}).get("structure_plot", {})
+    cfg = StructureVizCfg(**cfg_dict)
+
+    segments_df, markers_df = build_structure_segments_and_markers(
+        df,
+        swings_df,
+        events_df,
+        window_last_n=last_n_bars if last_n_bars else None,
+        show_only_valid=cfg.show_only_valid,
+    )
+
+    tail_df = df.tail(last_n_bars) if last_n_bars else df
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    suffix = f"last{last_n_bars}" if last_n_bars else "full"
+    title = f"{symbol} {tf} — Structure ({'last ' + str(last_n_bars) if last_n_bars else 'full'})"
+
+    plot_structure(
+        tail_df,
+        segments_df,
+        markers_df,
+        cfg,
+        str(out_path / f"structure_{suffix}.png"),
+        title,
+    )
+
+    segments_df.to_csv(out_path / f"structure_segments_{suffix}.csv", index=False)
+    markers_df.to_csv(out_path / f"structure_markers_{suffix}.csv", index=False)
+
+    if full and last_n_bars:
+        seg_full, mark_full = build_structure_segments_and_markers(
+            df,
+            swings_df,
+            events_df,
+            window_last_n=None,
+            show_only_valid=cfg.show_only_valid,
+        )
+        plot_structure(
+            df,
+            seg_full,
+            mark_full,
+            cfg,
+            str(out_path / "structure_full.png"),
+            f"{symbol} {tf} — Structure (full)",
+        )
+        seg_full.to_csv(out_path / "structure_segments_full.csv", index=False)
+        mark_full.to_csv(out_path / "structure_markers_full.csv", index=False)
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -654,6 +731,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tf", required=True)
     p.add_argument("--profile", required=True)
     p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-structure-viz")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--swings", required=True)
+    p.add_argument("--events", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--last-n-bars", type=int, default=500)
+    p.add_argument("--full", action="store_true")
 
     return parser
 
@@ -751,6 +839,18 @@ def main() -> None:
             tf=args.tf,
             profile=args.profile,
             outdir=args.outdir,
+        )
+    elif args.command == "analyze-structure-viz":
+        analyze_structure_viz(
+            parquet=args.parquet,
+            swings_csv=args.swings,
+            events_csv=args.events,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+            last_n_bars=args.last_n_bars,
+            full=args.full,
         )
     else:
         parser.print_help()
