@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
 from alpha.core.validate import validate_ohlc_frame
+from alpha.levels.detector import LevelsCfgFormation, detect_levels_formation
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -75,6 +77,51 @@ def indicators(
     )
 
 
+def analyze_levels_formation(
+    parquet: str, symbol: str, tf: str, profile: str, outdir: str
+) -> None:
+    """Detect formation levels from OHLC data and write artifacts."""
+    df = pd.read_parquet(parquet)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "levels.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+
+    cfg = LevelsCfgFormation(
+        doji_body_ratio=float(
+            profile_cfg.get("doji_body_ratio", LevelsCfgFormation.doji_body_ratio)
+        ),
+        ignore_doji=bool(profile_cfg.get("ignore_doji", LevelsCfgFormation.ignore_doji)),
+        cooldown_bars=int(profile_cfg.get("cooldown_bars", LevelsCfgFormation.cooldown_bars)),
+        min_leg_body_ratio=float(
+            profile_cfg.get("min_leg_body_ratio", LevelsCfgFormation.min_leg_body_ratio)
+        ),
+        tick_size=float(profile_cfg.get("tick_size", LevelsCfgFormation.tick_size)),
+    )
+
+    levels = detect_levels_formation(df, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    levels.to_csv(out_path / "levels_formation.csv", index=False)
+
+    summary = {
+        "n_bars": int(len(df)),
+        "n_levels": int(len(levels)),
+        "density_per_1000": float(len(levels) / len(df) * 1000) if len(df) else 0.0,
+        "first_time": df.index[0].isoformat() if len(df) else None,
+        "last_time": df.index[-1].isoformat() if len(df) else None,
+    }
+    with (out_path / "levels_formation_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"bars={summary['n_bars']}, levels={summary['n_levels']}, "
+        f"density_per_1000={summary['density_per_1000']:.2f}"
+    )
+
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -95,6 +142,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--atr-window", type=int, default=14)
     p.add_argument("--atr-method", choices=["ewm", "wilder"], default="ewm")
     p.add_argument("--doji-body-ratio", type=float, default=0.20)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-levels-formation")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
     p.add_argument("--outdir", required=True)
 
     return parser
@@ -119,6 +173,14 @@ def main() -> None:
             atr_window=args.atr_window,
             atr_method=args.atr_method,
             doji_body_ratio=args.doji_body_ratio,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-levels-formation":
+        analyze_levels_formation(
+            parquet=args.parquet,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
             outdir=args.outdir,
         )
     else:
