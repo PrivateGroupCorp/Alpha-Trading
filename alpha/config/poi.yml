@@ -1,9 +1,29 @@
-ranking:
-  weights:
-    origin: 1.0
-    bos_causing: 0.8
-    continuation: 0.4
-    holding: 0.3
-box:
-  extend_wicks: true
-  min_touch_count: 1
+poi:
+  use_only_valid_events: true
+  ob:
+    lookback_bars: 15
+    max_anchor_gap_bars: 8
+    zone_padding_atr_mult: 0.05
+    body_ratio_min: 0.25
+    prefer_full_wick: true
+    fvg_detect: true
+  merge:
+    overlap: true
+    merge_gap_atr_mult: 0.15
+    min_width_atr: 0.02
+    max_width_atr: 0.60
+    min_age_bars: 2
+  score:
+    weights:
+      structure: 0.35
+      sweep: 0.25
+      liquidity: 0.15
+      trend: 0.15
+      tech: 0.10
+    grade_map:
+      A: [0.75, 1.00]
+      B: [0.55, 0.75]
+      C: [0.00, 0.55]
+  atr_window: 14
+  pip_size: 0.0001
+  tick_size: 0.0

@@ -40,6 +40,7 @@ from alpha.liquidity.eq_clusters import (
     summarize_eq,
 )
 from alpha.liquidity.sweep import SweepCfg, detect_sweeps, summarize_sweeps
+from alpha.poi.ob import PoiCfg, build_poi_zones, build_poi_segments, summarize_poi
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -824,6 +825,84 @@ def analyze_structure_viz(
 
 # ---- CLI wiring ----
 
+def analyze_poi_ob(
+    parquet: str,
+    symbol: str,
+    tf: str,
+    outdir: str,
+    profile: str = "h1",
+    swings_csv: str = "",
+    events_csv: str = "",
+    sweeps_csv: str | None = None,
+    eq_clusters_csv: str | None = None,
+    asia_daily_csv: str | None = None,
+    trend_timeline_csv: str | None = None,
+) -> None:
+    df = pd.read_parquet(parquet)
+    swings = pd.read_csv(swings_csv, parse_dates=["time"]) if swings_csv else pd.DataFrame()
+    events = pd.read_csv(events_csv, parse_dates=["time"]) if events_csv else pd.DataFrame()
+    sweeps = pd.read_csv(sweeps_csv, parse_dates=["pen_time"]) if sweeps_csv else None
+    eq_clusters = pd.read_csv(eq_clusters_csv) if eq_clusters_csv else None
+    asia_daily = pd.read_csv(asia_daily_csv, parse_dates=["date"]) if asia_daily_csv else None
+    trend_timeline = pd.read_csv(trend_timeline_csv, parse_dates=["time"]) if trend_timeline_csv else None
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "poi.yml"
+    cfg_data = {}
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_data = yaml.safe_load(fh) or {}
+    poi_cfg = cfg_data.get("poi", {})
+    cfg = PoiCfg(
+        use_only_valid_events=bool(poi_cfg.get("use_only_valid_events", True)),
+        ob_lookback_bars=int(poi_cfg.get("ob", {}).get("lookback_bars", PoiCfg.ob_lookback_bars)),
+        ob_max_anchor_gap_bars=int(poi_cfg.get("ob", {}).get("max_anchor_gap_bars", PoiCfg.ob_max_anchor_gap_bars)),
+        ob_zone_padding_atr_mult=float(poi_cfg.get("ob", {}).get("zone_padding_atr_mult", PoiCfg.ob_zone_padding_atr_mult)),
+        ob_body_ratio_min=float(poi_cfg.get("ob", {}).get("body_ratio_min", PoiCfg.ob_body_ratio_min)),
+        ob_prefer_full_wick=bool(poi_cfg.get("ob", {}).get("prefer_full_wick", PoiCfg.ob_prefer_full_wick)),
+        fvg_detect=bool(poi_cfg.get("ob", {}).get("fvg_detect", PoiCfg.fvg_detect)),
+        merge_overlap=bool(poi_cfg.get("merge", {}).get("overlap", PoiCfg.merge_overlap)),
+        merge_gap_atr_mult=float(poi_cfg.get("merge", {}).get("merge_gap_atr_mult", PoiCfg.merge_gap_atr_mult)),
+        min_width_atr=float(poi_cfg.get("merge", {}).get("min_width_atr", PoiCfg.min_width_atr)),
+        max_width_atr=float(poi_cfg.get("merge", {}).get("max_width_atr", PoiCfg.max_width_atr)),
+        min_age_bars=int(poi_cfg.get("merge", {}).get("min_age_bars", PoiCfg.min_age_bars)),
+        score_weights=poi_cfg.get("score", {}).get("weights"),
+        grade_map=poi_cfg.get("score", {}).get("grade_map"),
+        atr_window=int(poi_cfg.get("atr_window", PoiCfg.atr_window)),
+        pip_size=float(poi_cfg.get("pip_size", PoiCfg.pip_size)),
+        tick_size=float(poi_cfg.get("tick_size", PoiCfg.tick_size)),
+    )
+
+    zones = build_poi_zones(
+        df,
+        swings,
+        events,
+        sweeps,
+        eq_clusters,
+        asia_daily,
+        trend_timeline,
+        cfg,
+    )
+    segments = build_poi_segments(zones, df)
+    summary = summarize_poi(zones, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    zones.to_csv(out_path / "poi_zones.csv", index=False)
+    segments.to_csv(out_path / "poi_segments.csv", index=False)
+    with (out_path / "poi_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+
+    med_width = float(zones["width_pips"].median(skipna=True)) if not zones.empty else 0.0
+    kind_counts = zones["kind"].value_counts().to_dict()
+    top5 = zones.sort_values("score_total", ascending=False).head(5)[
+        ["zone_id", "kind", "score_total"]
+    ]
+    print(
+        f"zones={len(zones)} kinds={kind_counts} med_width_pips={med_width:.2f}"\
+        f" top5={top5.to_dict('records')}"
+    )
+
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
@@ -936,7 +1015,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile", required=True)
     p.add_argument("--outdir", required=True)
     p.add_argument("--last-n-bars", type=int, default=500)
+
     p.add_argument("--full", action="store_true")
+    p = sub.add_parser("analyze-poi-ob")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", default="h1")
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--swings")
+    p.add_argument("--events")
+    p.add_argument("--sweeps")
+    p.add_argument("--eq-clusters")
+    p.add_argument("--asia-daily")
+    p.add_argument("--trend-timeline")
+
 
     return parser
 
@@ -1066,9 +1159,24 @@ def main() -> None:
             last_n_bars=args.last_n_bars,
             full=args.full,
         )
+    elif args.command == "analyze-poi-ob":
+        analyze_poi_ob(
+            parquet=args.parquet,
+            symbol=args.symbol,
+            tf=args.tf,
+            outdir=args.outdir,
+            profile=args.profile,
+            swings_csv=args.swings,
+            events_csv=args.events,
+            sweeps_csv=args.sweeps,
+            eq_clusters_csv=args.eq_clusters,
+            asia_daily_csv=args.asia_daily,
+            trend_timeline_csv=args.trend_timeline,
+        )
     else:
         parser.print_help()
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
     main()
+
