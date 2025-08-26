@@ -22,6 +22,7 @@ from alpha.levels.break_update import (
     apply_break_update,
 )
 from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
+from alpha.structure.swings import SwingsCfg, build_swings, summarize_swings
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -196,6 +197,68 @@ def analyze_levels_prop(
     print(
         f"weak_prop_share = {weak_prop_share:.2%}\n"
         f"leg_current mean={stats['mean']:.6f} median={stats['median']:.6f}"
+    )
+
+
+def analyze_structure_swings(
+    parquet: str,
+    levels_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Build swings from levels and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    levels_df = pd.read_csv(levels_csv, parse_dates=["time"])
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "structure.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+
+    cfg = SwingsCfg(
+        use_only_strong_swings=bool(
+            profile_cfg.get(
+                "use_only_strong_swings", SwingsCfg.use_only_strong_swings
+            )
+        ),
+        swing_merge_atr_mult=float(
+            profile_cfg.get(
+                "swing_merge_atr_mult", SwingsCfg.swing_merge_atr_mult
+            )
+        ),
+        min_gap_bars=int(
+            profile_cfg.get("min_gap_bars", SwingsCfg.min_gap_bars)
+        ),
+        min_price_delta_atr_mult=float(
+            profile_cfg.get(
+                "min_price_delta_atr_mult",
+                SwingsCfg.min_price_delta_atr_mult,
+            )
+        ),
+        keep_latest_on_tie=bool(
+            profile_cfg.get(
+                "keep_latest_on_tie", SwingsCfg.keep_latest_on_tie
+            )
+        ),
+        atr_window=int(profile_cfg.get("atr_window", SwingsCfg.atr_window)),
+    )
+
+    swings_df = build_swings(df, levels_df, cfg)
+    summary = summarize_swings(swings_df, levels_df, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    swings_df.to_csv(out_path / "swings.csv", index=False)
+    with (out_path / "swings_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"levels_in={summary['n_levels_in']} levels_used={summary['n_levels_used']} "
+        f"swings={summary['n_swings']} merge_same={summary['merge_same_type_count']} "
+        f"merge_nearby={summary['merge_nearby_count']}"
     )
 
 
