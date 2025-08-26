@@ -24,6 +24,7 @@ from alpha.levels.break_update import (
 from alpha.eval.levels_metrics import compute_levels_metrics, score_levels
 from alpha.viz.levels import LevelsVizCfg, build_level_segments, plot_levels
 from alpha.structure.swings import SwingsCfg, build_swings, summarize_swings
+from alpha.structure.events import EventsCfg, detect_bos_choch, summarize_events
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -440,6 +441,64 @@ def analyze_structure_swings(
         f"merge_nearby={summary['merge_nearby_count']}"
     )
 
+
+def analyze_structure_events(
+    parquet: str,
+    swings_csv: str,
+    symbol: str,
+    tf: str,
+    profile: str,
+    outdir: str,
+) -> None:
+    """Detect structure events (BOS/CHoCH) and write artifacts."""
+
+    df = pd.read_parquet(parquet)
+    swings_df = pd.read_csv(swings_csv)
+    if "time" in swings_df.columns:
+        swings_df["time"] = pd.to_datetime(swings_df["time"], utc=True, errors="coerce")
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "structure.yml"
+    cfg_dict = {}
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as fh:
+            cfg_dict = yaml.safe_load(fh) or {}
+    profile_cfg = cfg_dict.get("profiles", {}).get(profile, {})
+
+    cfg = EventsCfg(
+        bos_break_mult_atr=float(
+            profile_cfg.get("bos_break_mult_atr", EventsCfg.bos_break_mult_atr)
+        ),
+        bos_leg_min_atr_mult=float(
+            profile_cfg.get("bos_leg_min_atr_mult", EventsCfg.bos_leg_min_atr_mult)
+        ),
+        atr_window=int(profile_cfg.get("atr_window", EventsCfg.atr_window)),
+        event_cooldown_bars=int(
+            profile_cfg.get(
+                "event_cooldown_bars", EventsCfg.event_cooldown_bars
+            )
+        ),
+        confirm_with_body_only=bool(
+            profile_cfg.get(
+                "confirm_with_body_only", EventsCfg.confirm_with_body_only
+            )
+        ),
+    )
+
+    events_df = detect_bos_choch(df, swings_df, cfg)
+    summary = summarize_events(events_df, cfg)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    events_df.to_csv(out_path / "events.csv", index=False)
+    with (out_path / "events_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2)
+
+    print(
+        f"BOS={summary['n_bos']}, CHoCH={summary['n_choch']}, "
+        f"up/down=({summary['up']}/{summary['down']}), "
+        f"median_margin_norm={summary['median_break_margin_norm']:.3f}"
+    )
+
 # ---- CLI wiring ----
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -506,6 +565,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("analyze-structure-swings")
     p.add_argument("--parquet", required=True)
     p.add_argument("--levels", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", required=True)
+    p.add_argument("--outdir", required=True)
+
+    p = sub.add_parser("analyze-structure-events")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--swings", required=True)
     p.add_argument("--symbol", required=True)
     p.add_argument("--tf", required=True)
     p.add_argument("--profile", required=True)
@@ -585,6 +652,15 @@ def main() -> None:
         analyze_structure_swings(
             parquet=args.parquet,
             levels_csv=args.levels,
+            symbol=args.symbol,
+            tf=args.tf,
+            profile=args.profile,
+            outdir=args.outdir,
+        )
+    elif args.command == "analyze-structure-events":
+        analyze_structure_events(
+            parquet=args.parquet,
+            swings_csv=args.swings,
             symbol=args.symbol,
             tf=args.tf,
             profile=args.profile,
