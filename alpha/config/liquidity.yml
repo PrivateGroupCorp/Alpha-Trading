@@ -12,5 +12,25 @@ profiles:
     formatting:
       pip_size: 0.0001
       tick_size: 0.0
-cluster:
+eq_cluster:
   eq_atr_tol: 0.06
+  alt_pip_tol: 0.0
+  body_confirm: false
+  max_dupe_bars: 1
+  use_swings_gate: false
+
+  merge_overlap: true
+  merge_gap_atr_mult: 0.25
+  min_touch_count: 2
+  min_age_bars: 5
+
+  weights:
+    touches: 0.40
+    age: 0.20
+    tightness: 0.25
+    cleanliness: 0.15
+
+  pip_size: 0.0001
+  tick_size: 0.0
+  atr_window: 14
+  annotate_asia: true
