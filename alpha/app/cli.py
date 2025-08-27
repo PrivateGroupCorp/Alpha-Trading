@@ -38,6 +38,8 @@ from alpha.viz.structure import (
 )
 from alpha.viz.poi import POIVizCfg, build_poi_layers, plot_poi
 from alpha.liquidity.asia import AsiaCfg, asia_range_daily, summarize_asia_ranges
+from alpha.qa.health import run_qa
+from alpha.qa.utils import load_yaml
 from alpha.liquidity.eq_clusters import (
     EqCfg,
     detect_eq_touches,
@@ -1588,6 +1590,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list-schedules", action="store_true")
     p.add_argument("--config", dest="config_path", default="alpha/config/scheduler.yml")
 
+    # QA utilities
+    p = sub.add_parser("qa-run")
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--run-id")
+    p.add_argument("--artifacts-root", default="artifacts")
+    p.add_argument("--strict-mode", choices=["soft", "hard"], default="soft")
+
+    p = sub.add_parser("qa-validate-last")
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--run-id")
+    p.add_argument("--artifacts-root", default="artifacts")
+
     return parser
 
 
@@ -1836,6 +1852,32 @@ def main() -> None:
             list_schedules=args.list_schedules,
             config_path=args.config_path,
         )
+    elif args.command == "qa-run":
+        cfg = load_yaml("alpha/config/qa.yml").get("qa", {})
+        result = run_qa(
+            symbol=args.symbol,
+            tf=args.tf,
+            run_id=args.run_id,
+            qa_cfg=cfg,
+            artifacts_root=args.artifacts_root,
+        )
+        ok = all(result.gates.values())
+        print(f"[QA] {args.symbol} {args.tf} overall={result.overall:.1f}")
+        if args.strict_mode == "hard" and not ok:
+            raise SystemExit(1)
+    elif args.command == "qa-validate-last":
+        cfg = load_yaml("alpha/config/qa.yml").get("qa", {})
+        result = run_qa(
+            symbol=args.symbol,
+            tf=args.tf,
+            run_id=args.run_id,
+            qa_cfg=cfg,
+            artifacts_root=args.artifacts_root,
+        )
+        ok = all(result.gates.values())
+        print(f"[QA] {args.symbol} {args.tf} overall={result.overall:.1f}")
+        if not ok:
+            raise SystemExit(1)
     else:
         parser.print_help()
 
