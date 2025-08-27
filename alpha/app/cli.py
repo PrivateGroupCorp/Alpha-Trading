@@ -11,6 +11,7 @@ import pandas as pd
 import yaml
 
 from alpha.ops.runner import RunCfg, run_pipeline
+from alpha.ops.audit import run_repo_audit
 
 from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
@@ -1538,6 +1539,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--artifacts-root")
     p.add_argument("--runs-root")
 
+    p = sub.add_parser("repo-audit")
+    p.add_argument("--root", default=".")
+    p.add_argument("--outdir", default="artifacts/audit")
+    p.add_argument("--deep", action="store_true")
+
     return parser
 
 
@@ -1766,6 +1772,9 @@ def main() -> None:
             artifacts_root=args.artifacts_root,
             runs_root=args.runs_root,
         )
+    elif args.command == "repo-audit":
+        result = run_repo_audit(root=args.root, outdir=args.outdir, deep=args.deep)
+        raise SystemExit(result.get("exit_code", 0))
     elif args.command == "generate-report":
         generate_report(
             symbol=args.symbol,

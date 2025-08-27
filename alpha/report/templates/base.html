@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+  </head>
+  <body>
+    {% for key, img in images.items() %}
+    <img src="{{ img }}" alt="{{ key }}" />
+    {% endfor %}
+    {% for name, tbl in tables.items() %}
+    <h2>{{ name }}</h2>
+    {{ tbl|safe }}
+    {% if links.get(name) %}
+    <a href="{{ links[name] }}">Download CSV</a>
+    {% endif %}
+    {% endfor %}
+  </body>
+</html>
