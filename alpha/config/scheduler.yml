@@ -1,0 +1,32 @@
+schedules:
+  daily_eur_usd_h1_m1:
+    enable: true
+    profile: "e2e_h1_m1"
+    symbol: "EURUSD"
+    htf: "H1"
+    ltf: "M1"
+    window:
+      mode: "rolling_days"
+      days: 30
+    when:
+      tz: "Europe/Berlin"
+      cron: "0 7 * * 1-5"
+    behavior:
+      force: false
+      resume: true
+      fail_fast: true
+      dry_run: false
+    backoff:
+      retries: 2
+      initial_s: 60
+      max_s: 600
+      factor: 2.0
+    notify:
+      on: ["success", "failure"]
+      channels:
+        slack:
+          enabled: true
+          webhook_env: "SLACK_WEBHOOK_URL"
+    retention:
+      runs_to_keep: 20
+      delete_old_artifacts: false
