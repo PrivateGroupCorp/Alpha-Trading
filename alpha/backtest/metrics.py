@@ -30,6 +30,7 @@ def summarize_bt(trades_df: pd.DataFrame, equity_df: pd.DataFrame) -> Dict:
 
     trades_df = trades_df.copy()
     trades_df["win"] = trades_df["pnl_R"] > 0
+    trades_df["entry_time"] = pd.to_datetime(trades_df.get("entry_time"), errors="coerce")
 
     summary["n_trades"] = int(trades_df["trade_id"].nunique())
     summary["n_legs"] = int(len(trades_df))

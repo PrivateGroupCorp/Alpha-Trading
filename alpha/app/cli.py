@@ -49,6 +49,7 @@ from alpha.backtest.vbt_bridge import (
     run_vectorbt,
 )
 from alpha.backtest.metrics import summarize_bt
+from alpha.backtest.bt_runner import run_backtest_bt
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -1075,6 +1076,36 @@ def run_execution_cli(
     )
 
 
+def run_backtest_bt_cli(
+    m1_parquet: str,
+    zones_csv: str,
+    symbol: str,
+    htf: str,
+    outdir: str,
+    profile: str = "bt_m1",
+    trend_timeline_csv: str | None = None,
+    sweeps_csv: str | None = None,
+    asia_daily_csv: str | None = None,
+    eq_clusters_csv: str | None = None,
+) -> None:
+    summary = run_backtest_bt(
+        m1_parquet=m1_parquet,
+        zones_csv=zones_csv,
+        symbol=symbol,
+        htf=htf,
+        outdir=outdir,
+        profile=profile,
+        trend_timeline_csv=trend_timeline_csv,
+        sweeps_csv=sweeps_csv,
+        asia_daily_csv=asia_daily_csv,
+        eq_clusters_csv=eq_clusters_csv,
+    )
+    print(
+        f"n_trades={summary.get('n_trades',0)} win_rate={summary.get('win_rate_trades',0):.2f} "
+        f"avg_R={summary.get('avg_R',0):.3f} maxDD_R={summary.get('max_dd_R',0):.2f}"
+    )
+
+
 
 def run_backtest_vbt(
     m1_parquet: str,
@@ -1316,6 +1347,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start")
     p.add_argument("--end")
 
+    p = sub.add_parser("run-backtest-bt")
+    p.add_argument("--m1-parquet", required=True)
+    p.add_argument("--zones", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--htf", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", default="bt_m1")
+    p.add_argument("--trend-timeline")
+    p.add_argument("--sweeps")
+    p.add_argument("--asia-daily")
+    p.add_argument("--eq-clusters")
+
     return parser
 
 
@@ -1489,6 +1532,19 @@ def main() -> None:
             start=args.start,
             end=args.end,
             initial_equity=args.initial_equity,
+        )
+    elif args.command == "run-backtest-bt":
+        run_backtest_bt_cli(
+            m1_parquet=args.m1_parquet,
+            zones_csv=args.zones,
+            symbol=args.symbol,
+            htf=args.htf,
+            outdir=args.outdir,
+            profile=args.profile,
+            trend_timeline_csv=args.trend_timeline,
+            sweeps_csv=args.sweeps,
+            asia_daily_csv=args.asia_daily,
+            eq_clusters_csv=args.eq_clusters,
         )
     elif args.command == "run-backtest-vbt":
         run_backtest_vbt(
