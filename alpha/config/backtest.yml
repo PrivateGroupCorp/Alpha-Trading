@@ -1,0 +1,40 @@
+profiles:
+  vbt_m1:
+    start: null
+    end: null
+    initial_equity: 10000.0
+    min_zone_grade: "B"
+    zone_staleness_max_bars: 180
+    use_trend_filter: true
+    require_nearby_sweep: false
+    triggers:
+      touch_reject:
+        enabled: true
+        max_pen_atr_mult: 0.20
+        min_reject_wick_ratio: 0.4
+        confirm_with_body_against: true
+      choch_bos_in_zone:
+        enabled: true
+        min_internal_leg_atr_mult: 0.10
+        bos_confirm_k: 0.10
+        lookahead_bars: 6
+    risk:
+      risk_fixed_pct: 0.5
+      pip_size: 0.0001
+      contract_size: 100000
+      spread_pips: 0.1
+      slippage_pips: 0.1
+      commission_per_million: 30.0
+      atr_window_m1: 14
+      sl_pad_atr_mult: 0.10
+      multi_tp:
+        legs:
+          - { r: 1.0, weight: 0.30 }
+          - { r: 2.0, weight: 0.40 }
+          - { r: 3.0, weight: 0.30 }
+        breakeven_after_r: 1.0
+      trailing:
+        mode: "off"
+        atr_mult: 1.5
+    fees:
+      use_vbt_fees: true

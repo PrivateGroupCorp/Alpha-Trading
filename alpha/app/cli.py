@@ -42,6 +42,13 @@ from alpha.liquidity.eq_clusters import (
 )
 from alpha.liquidity.sweep import SweepCfg, detect_sweeps, summarize_sweeps
 from alpha.poi.ob import PoiCfg, build_poi_zones, build_poi_segments, summarize_poi
+from alpha.backtest.vbt_bridge import (
+    VBTCfg,
+    prepare_context,
+    derive_signals,
+    run_vectorbt,
+)
+from alpha.backtest.metrics import summarize_bt
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -1069,6 +1076,78 @@ def run_execution_cli(
 
 
 
+def run_backtest_vbt(
+    m1_parquet: str,
+    zones_csv: str,
+    symbol: str,
+    htf: str,
+    outdir: str,
+    profile: str = "vbt_m1",
+    trend_timeline_csv: str | None = None,
+    sweeps_csv: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+) -> None:
+    """Run lightweight vectorbt backtest and store artifacts."""
+
+    m1_df = pd.read_parquet(m1_parquet)
+    zones_df = pd.read_csv(zones_csv)
+    trend_timeline = (
+        pd.read_csv(trend_timeline_csv, parse_dates=["time"]) if trend_timeline_csv else None
+    )
+    sweeps_df = pd.read_csv(sweeps_csv) if sweeps_csv else None
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "backtest.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+    cfg = VBTCfg(
+        min_zone_grade=profile_cfg.get("min_zone_grade", "B"),
+        zone_staleness_max_bars=profile_cfg.get("zone_staleness_max_bars", 180),
+        use_trend_filter=profile_cfg.get("use_trend_filter", True),
+        require_nearby_sweep=profile_cfg.get("require_nearby_sweep", False),
+        touch_reject=profile_cfg.get("triggers", {}).get("touch_reject", {}),
+        choch_bos_in_zone=profile_cfg.get("triggers", {}).get("choch_bos_in_zone", {}),
+        risk=profile_cfg.get("risk", {}),
+        fees=profile_cfg.get("fees", {}),
+    )
+
+    start_ts = pd.to_datetime(start, utc=True) if start else None
+    end_ts = pd.to_datetime(end, utc=True) if end else None
+    if start_ts is not None:
+        m1_df = m1_df[m1_df.index >= start_ts]
+    if end_ts is not None:
+        m1_df = m1_df[m1_df.index <= end_ts]
+
+    m1_ctx = prepare_context(m1_df, zones_df, trend_timeline, sweeps_df, cfg)
+    entries_long, entries_short, meta = derive_signals(m1_ctx, cfg)
+
+    initial_equity = float(profile_cfg.get("initial_equity", 10000.0))
+    result = run_vectorbt(
+        m1_df,
+        entries_long,
+        entries_short,
+        meta,
+        cfg,
+        initial_equity,
+    )
+    trades_df = result["trades"]
+    equity_df = result["equity_curve"]
+    summary = summarize_bt(trades_df, equity_df)
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    trades_df.to_csv(out_path / "trades.csv", index=False)
+    equity_df.to_csv(out_path / "equity_curve.csv", index=False)
+    with (out_path / "bt_summary.json").open("w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, default=str)
+
+    print(
+        f"trades={summary['n_trades']}(legs={summary['n_legs']}), win_rate_trades={summary['win_rate_trades']:.2%}, avg_R={summary['avg_R']:.2f}, maxDD_R={summary['max_dd_R']:.2f}"
+    )
+    print(f"by_trigger={summary['by_trigger']}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
     sub = parser.add_subparsers(dest="command")
@@ -1224,6 +1303,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start")
     p.add_argument("--end")
     p.add_argument("--initial-equity", type=float, default=10000.0)
+
+    p = sub.add_parser("run-backtest-vbt")
+    p.add_argument("--m1-parquet", required=True)
+    p.add_argument("--zones", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--htf", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", default="vbt_m1")
+    p.add_argument("--trend-timeline")
+    p.add_argument("--sweeps")
+    p.add_argument("--start")
+    p.add_argument("--end")
 
     return parser
 
@@ -1398,6 +1489,19 @@ def main() -> None:
             start=args.start,
             end=args.end,
             initial_equity=args.initial_equity,
+        )
+    elif args.command == "run-backtest-vbt":
+        run_backtest_vbt(
+            m1_parquet=args.m1_parquet,
+            zones_csv=args.zones,
+            symbol=args.symbol,
+            htf=args.htf,
+            outdir=args.outdir,
+            profile=args.profile,
+            trend_timeline_csv=args.trend_timeline,
+            sweeps_csv=args.sweeps,
+            start=args.start,
+            end=args.end,
         )
     else:
         parser.print_help()
