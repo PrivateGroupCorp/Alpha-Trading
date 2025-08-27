@@ -1,0 +1,13 @@
+profiles:
+  default:
+    tz: "UTC"
+    provider: "csv_local"
+    chunk_days: 7
+    rate_limit_per_min: 60
+    backoff_policy: {base_s: 1.0, max_s: 60.0, factor: 2.0}
+    drop_incomplete_ohlc: true
+    fill_volume_nan_with_zero: true
+    save_raw: false
+    resample_to: []
+    csv_local:
+      sep: ","
