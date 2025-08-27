@@ -1,0 +1,21 @@
+qa:
+  weights:
+    data: 0.25
+    structure: 0.15
+    liquidity: 0.10
+    poi: 0.15
+    execution: 0.25
+    report: 0.10
+  gates:
+    require_report: true
+    min_trades: 10
+    min_data_days: 30
+  thresholds:
+    data:
+      dup_pct: 5
+      nan_rows_pct: 10
+    report:
+      size_kb: 10
+    execution:
+      n_trades: 10
+      win_rate: [20, 80]
