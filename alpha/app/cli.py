@@ -10,6 +10,8 @@ from datetime import datetime
 import pandas as pd
 import yaml
 
+from alpha.ops.runner import RunCfg, run_pipeline
+
 from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
 from alpha.core.validate import validate_ohlc_frame
@@ -1264,6 +1266,63 @@ def generate_report(
     print(f"Report saved: {out_html}")
 
 
+def run_pipeline_cli(
+    profile: str,
+    symbol: str | None = None,
+    htf: str | None = None,
+    ltf: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    force: bool = False,
+    resume: bool = False,
+    dry_run: bool = False,
+    artifacts_root: str | None = None,
+    runs_root: str | None = None,
+) -> None:
+    """Load configuration and execute the pipeline runner."""
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "pipeline.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    prof = data.get("profiles", {}).get(profile, {})
+
+    symbol = symbol or prof.get("symbol")
+    htf = htf or prof.get("htf")
+    ltf = ltf or prof.get("ltf")
+    date_cfg = prof.get("date", {})
+    start = start or date_cfg.get("start")
+    end = end or date_cfg.get("end")
+    stages_cfg = prof.get("stages", {})
+    behavior_cfg = prof.get("behavior", {}).copy()
+    io_cfg = prof.get("io", {}).copy()
+
+    if force:
+        behavior_cfg["force"] = True
+    if resume:
+        behavior_cfg["resume"] = True
+    if dry_run:
+        behavior_cfg["dry_run"] = True
+    if artifacts_root:
+        io_cfg["artifacts_root"] = artifacts_root
+    if runs_root:
+        io_cfg["runs_root"] = runs_root
+
+    run_cfg = RunCfg(
+        profile=profile,
+        symbol=symbol,
+        htf=htf,
+        ltf=ltf,
+        start=start,
+        end=end,
+        stages=stages_cfg,
+        behavior=behavior_cfg,
+        io=io_cfg,
+    )
+
+    result = run_pipeline(run_cfg)
+    print(json.dumps(result))
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
     sub = parser.add_subparsers(dest="command")
@@ -1465,6 +1524,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sweeps")
     p.add_argument("--asia-daily")
     p.add_argument("--eq-clusters")
+
+    p = sub.add_parser("run-pipeline")
+    p.add_argument("--profile", required=True)
+    p.add_argument("--symbol")
+    p.add_argument("--htf")
+    p.add_argument("--ltf")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--resume", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--artifacts-root")
+    p.add_argument("--runs-root")
 
     return parser
 
@@ -1679,6 +1751,20 @@ def main() -> None:
             sweeps_csv=args.sweeps,
             start=args.start,
             end=args.end,
+        )
+    elif args.command == "run-pipeline":
+        run_pipeline_cli(
+            profile=args.profile,
+            symbol=args.symbol,
+            htf=args.htf,
+            ltf=args.ltf,
+            start=args.start,
+            end=args.end,
+            force=args.force,
+            resume=args.resume,
+            dry_run=args.dry_run,
+            artifacts_root=args.artifacts_root,
+            runs_root=args.runs_root,
         )
     elif args.command == "generate-report":
         generate_report(

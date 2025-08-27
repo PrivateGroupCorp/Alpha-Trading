@@ -1,0 +1,33 @@
+profiles:
+  e2e_h1_m1:
+    symbol: "EURUSD"
+    htf: "H1"
+    ltf: "M1"
+    date:
+      start: "2025-06-01"
+      end: "2025-08-15"
+    stages:
+      data:
+        enabled: false
+      structure:
+        enabled: true
+      liquidity:
+        enabled: true
+      poi:
+        enabled: true
+      execution:
+        enabled: true
+      backtests:
+        enabled: true
+      report:
+        enabled: true
+    behavior:
+      force: false
+      resume: true
+      fail_fast: true
+      dry_run: false
+      keep_intermediate: true
+    io:
+      artifacts_root: "artifacts"
+      runs_root: "artifacts/runs"
+      logs_rotate: 5
