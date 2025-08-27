@@ -58,6 +58,7 @@ from alpha.report.build_report import (
     render_html,
     snapshot_params,
 )
+from alpha.data.ingest import fetch_and_normalize, save_pipeline
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -74,6 +75,34 @@ def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -
     meta_path = out_path / "meta.json"
     with meta_path.open("w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=2)
+
+
+def fetch_data_cli(
+    provider: str,
+    symbol: str,
+    tf: str,
+    start: str,
+    end: str,
+    outdir: str,
+    profile: str = "default",
+    tz: str | None = None,
+    merge: bool = True,
+    resample_to: str | None = None,
+    save_raw: bool | None = None,
+) -> None:
+    """Fetch, normalize and store OHLC data."""
+
+    result = fetch_and_normalize(provider, symbol, tf, start, end, profile=profile)
+    df = result["df"]
+    report = result["report"]
+    resample_list = [t.strip() for t in resample_to.split(",")] if resample_to else None
+    save_pipeline(df, symbol, tf, outdir, merge=merge, resample_to=resample_list, report=report)
+    span = report.get("span", [None, None])
+    n_rows = report.get("n_rows", 0)
+    gaps = report.get("gaps", {}).get("count", 0)
+    print(
+        f"[fetch-data] provider={provider} symbol={symbol} tf={tf} span={span[0]}..{span[1]} rows={n_rows} gaps={gaps}"
+    )
 
 
 def indicators(
@@ -1239,6 +1268,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
     sub = parser.add_subparsers(dest="command")
 
+    p = sub.add_parser("fetch-data")
+    p.add_argument("--provider", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", default="default")
+    p.add_argument("--tz")
+    p.add_argument("--merge", dest="merge", action="store_true", default=True)
+    p.add_argument("--no-merge", dest="merge", action="store_false")
+    p.add_argument("--resample-to")
+    p.add_argument("--save-raw", action="store_true")
+
     p = sub.add_parser("analyze-levels-data")
     p.add_argument("--data", required=True)
     p.add_argument("--symbol", required=True)
@@ -1429,7 +1472,21 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    if args.command == "analyze-levels-data":
+    if args.command == "fetch-data":
+        fetch_data_cli(
+            provider=args.provider,
+            symbol=args.symbol,
+            tf=args.tf,
+            start=args.start,
+            end=args.end,
+            outdir=args.outdir,
+            profile=args.profile,
+            tz=args.tz,
+            merge=args.merge,
+            resample_to=args.resample_to,
+            save_raw=args.save_raw,
+        )
+    elif args.command == "analyze-levels-data":
         analyze_levels_data(
             data=args.data,
             symbol=args.symbol,
