@@ -15,6 +15,7 @@ from alpha.ops.runner import RunCfg, run_pipeline
 from alpha.ops.scheduler import ScheduleCfg, run_once as sched_run_once, start_scheduler
 from alpha.ops.audit import run_repo_audit
 from alpha.ops.doctor import run_doctor
+from alpha.ops.run_all import RunAllCfg, run_all
 
 from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
@@ -1329,6 +1330,43 @@ def run_pipeline_cli(
     print(json.dumps(result))
 
 
+def project_run_all(
+    profile: str,
+    symbol: str,
+    htf: str,
+    ltf: str,
+    mode: str,
+    rolling_days: int,
+    install_missing: bool,
+    auto_fetch: bool,
+    provider: str,
+    continue_on_error: bool,
+    max_retries: int,
+    timeout_per_step_sec: int,
+    run_bt: bool,
+    skip_backtests_vbt: bool,
+) -> Dict[str, Any]:
+    """Run the end-to-end project orchestration."""
+
+    cfg = RunAllCfg(
+        profile=profile,
+        symbol=symbol,
+        htf=htf,
+        ltf=ltf,
+        mode=mode,
+        rolling_days=rolling_days,
+        install_missing=install_missing,
+        auto_fetch=auto_fetch,
+        provider=provider,
+        continue_on_error=continue_on_error,
+        max_retries=max_retries,
+        timeout_per_step_sec=timeout_per_step_sec,
+        run_bt=run_bt,
+        skip_backtests_vbt=skip_backtests_vbt,
+    )
+    return run_all(cfg)
+
+
 
 def schedule_run(
     profile: str = 'e2e_h1_m1',
@@ -1348,7 +1386,7 @@ def schedule_run(
         for sid, scfg in all_cfg.items():
             state = 'enabled' if scfg.enable else 'disabled'
             print(f'{sid}: {state}')
-        return
+    return
     if run_now:
         scfg = all_cfg[run_now]
         res = sched_run_once(run_now, scfg)
@@ -1609,6 +1647,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--auto-fetch", action="store_true")
     p.add_argument("--provider", default="tardis")
     p.add_argument("--force", action="store_true")
+
+    p = sub.add_parser("project-run-all")
+    p.add_argument("--profile", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--htf", required=True)
+    p.add_argument("--ltf", required=True)
+    p.add_argument("--mode", choices=["dry", "smoke"], default="dry")
+    p.add_argument("--rolling-days", type=int, default=30)
+    p.add_argument("--install-missing", action="store_true")
+    p.add_argument("--auto-fetch", action="store_true")
+    p.add_argument("--provider", default="csv_local")
+    p.add_argument("--continue-on-error", action="store_true")
+    p.add_argument("--max-retries", type=int, default=0)
+    p.add_argument("--timeout-per-step-sec", type=int, default=600)
+    p.add_argument("--run-bt", action="store_true")
+    p.add_argument("--skip-backtests-vbt", action="store_true")
 
     # QA utilities
     p = sub.add_parser("qa-run")
@@ -1898,6 +1952,28 @@ def main() -> None:
             f"[project-readiness] grade={result['grade']} artifacts={artifacts}"
         )
         sys.exit(1 if result.get("grade") == "Red" else 0)
+    elif args.command == "project-run-all":
+        result = project_run_all(
+            profile=args.profile,
+            symbol=args.symbol,
+            htf=args.htf,
+            ltf=args.ltf,
+            mode=args.mode,
+            rolling_days=args.rolling_days,
+            install_missing=args.install_missing,
+            auto_fetch=args.auto_fetch,
+            provider=args.provider,
+            continue_on_error=args.continue_on_error,
+            max_retries=args.max_retries,
+            timeout_per_step_sec=args.timeout_per_step_sec,
+            run_bt=args.run_bt,
+            skip_backtests_vbt=args.skip_backtests_vbt,
+        )
+        for st in result.get("steps", []):
+            reason = st.get("reason") or ""
+            print(f"[{st['name']}] {st['status']} {reason}")
+        print(f"summary: {result.get('summary_md')}")
+        raise SystemExit(result.get("exit_code", 0))
     elif args.command == "qa-run":
         cfg = load_yaml("alpha/config/qa.yml").get("qa", {})
         result = run_qa(
