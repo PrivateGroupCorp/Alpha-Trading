@@ -986,6 +986,88 @@ def analyze_poi_viz(
         )
 
 
+def run_execution_cli(
+    m1_parquet: str,
+    zones_csv: str,
+    symbol: str,
+    htf: str,
+    outdir: str,
+    profile: str = "m1_default",
+    trend_timeline_csv: str | None = None,
+    sweeps_csv: str | None = None,
+    events_csv: str | None = None,
+    asia_daily_csv: str | None = None,
+    eq_clusters_csv: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    initial_equity: float = 10000.0,
+) -> None:
+    from alpha.execution.engine import ExecCfg, run_execution
+
+    m1_df = pd.read_parquet(m1_parquet)
+    zones_df = pd.read_csv(zones_csv)
+    trend_timeline = (
+        pd.read_csv(trend_timeline_csv, parse_dates=["time"]) if trend_timeline_csv else None
+    )
+    sweeps_df = pd.read_csv(sweeps_csv) if sweeps_csv else None
+    context: Dict[str, pd.DataFrame] = {}
+    if events_csv:
+        context["events"] = pd.read_csv(events_csv)
+    if asia_daily_csv:
+        context["asia"] = pd.read_csv(asia_daily_csv)
+    if eq_clusters_csv:
+        context["eq"] = pd.read_csv(eq_clusters_csv)
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "execution.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    profile_cfg = data.get("profiles", {}).get(profile, {})
+    exec_cfg = ExecCfg(
+        allow_sessions=profile_cfg.get("allow_sessions", ["EU", "US"]),
+        session_hours_utc=profile_cfg.get("session_hours_utc", {}),
+        min_minutes_between_trades=profile_cfg.get("min_minutes_between_trades", 5),
+        max_concurrent_trades=profile_cfg.get("max_concurrent_trades", 2),
+        one_trade_per_zone=profile_cfg.get("one_trade_per_zone", True),
+        use_trend_filter=profile_cfg.get("use_trend_filter", False),
+        min_zone_grade=profile_cfg.get("min_zone_grade", "B"),
+        zone_staleness_max_bars=profile_cfg.get("zone_staleness_max_bars", 60),
+        require_nearby_sweep=profile_cfg.get("require_nearby_sweep", False),
+        triggers=profile_cfg.get("triggers", {}),
+        risk=profile_cfg.get("risk", {}),
+        risk_caps=profile_cfg.get("risk_caps", {}),
+    )
+
+    start_ts = pd.to_datetime(start, utc=True) if start else None
+    end_ts = pd.to_datetime(end, utc=True) if end else None
+
+    result = run_execution(
+        m1_df,
+        zones_df,
+        trend_timeline,
+        sweeps_df,
+        context,
+        exec_cfg,
+        start_time=start_ts,
+        end_time=end_ts,
+        initial_equity_usd=initial_equity,
+    )
+
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    result["trades"].to_csv(out_path / "trades.csv", index=False)
+    result["fills"].to_csv(out_path / "fills.csv", index=False)
+    result["equity_curve"].to_csv(out_path / "equity_curve.csv", index=False)
+    result["summary"].to_json(out_path / "trades_summary.json", orient="records")
+
+    n_trades = int(result["summary"]["n_trades"].iloc[0]) if not result["summary"].empty else 0
+    win_rate = float(result["summary"]["win_rate"].iloc[0]) if not result["summary"].empty else 0.0
+    avg_R = float(result["summary"]["avg_R"].iloc[0]) if not result["summary"].empty else 0.0
+    max_dd = float(result["summary"]["max_dd_R"].iloc[0]) if not result["summary"].empty else 0.0
+    print(
+        f"n_trades={n_trades} win_rate={win_rate:.2f} avg_R={avg_R:.3f} maxDD_R={max_dd:.2f}"
+    )
+
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
@@ -1126,6 +1208,22 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trend-timeline")
     p.add_argument("--last-n-bars", type=int, default=500)
     p.add_argument("--full", action="store_true")
+
+    p = sub.add_parser("run-execution")
+    p.add_argument("--m1-parquet", required=True)
+    p.add_argument("--zones", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--htf", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", default="m1_default")
+    p.add_argument("--trend-timeline")
+    p.add_argument("--sweeps")
+    p.add_argument("--events")
+    p.add_argument("--asia-daily")
+    p.add_argument("--eq-clusters")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--initial-equity", type=float, default=10000.0)
 
     return parser
 
@@ -1283,6 +1381,23 @@ def main() -> None:
             trend_timeline_csv=args.trend_timeline,
             last_n_bars=args.last_n_bars,
             full=args.full,
+        )
+    elif args.command == "run-execution":
+        run_execution_cli(
+            m1_parquet=args.m1_parquet,
+            zones_csv=args.zones,
+            symbol=args.symbol,
+            htf=args.htf,
+            outdir=args.outdir,
+            profile=args.profile,
+            trend_timeline_csv=args.trend_timeline,
+            sweeps_csv=args.sweeps,
+            events_csv=args.events,
+            asia_daily_csv=args.asia_daily,
+            eq_clusters_csv=args.eq_clusters,
+            start=args.start,
+            end=args.end,
+            initial_equity=args.initial_equity,
         )
     else:
         parser.print_help()

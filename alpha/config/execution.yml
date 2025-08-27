@@ -1,0 +1,43 @@
+profiles:
+  m1_default:
+    allow_sessions: ["EU", "US"]
+    session_hours_utc:
+      EU: [7,16]
+      US: [12,21]
+    min_minutes_between_trades: 5
+    max_concurrent_trades: 2
+    one_trade_per_zone: true
+    use_trend_filter: false
+    min_zone_grade: "B"
+    zone_staleness_max_bars: 180
+    require_nearby_sweep: false
+    triggers:
+      touch_reject:
+        enabled: true
+        max_pen_atr_mult: 0.2
+        min_reject_wick_ratio: 0.4
+        confirm_with_body_against: true
+      choch_bos_in_zone:
+        enabled: true
+        min_internal_leg_atr_mult: 0.1
+        bos_confirm_k: 0.1
+        lookahead_bars: 6
+    risk:
+      risk_fixed_pct: 0.5
+      pip_size: 0.0001
+      contract_size: 100000
+      spread_pips: 0.1
+      slippage_pips: 0.1
+      commission_per_million: 30.0
+      atr_window_m1: 14
+      sl_pad_atr_mult: 0.1
+      tp_schema:
+        - {r: 1.0, pct: 0.5}
+        - {r: 2.0, pct: 0.5}
+      breakeven_after: 1.0
+      trailing:
+        mode: "off"
+    risk_caps:
+      max_daily_loss_R: 3.0
+      max_weekly_loss_R: 7.0
+      stop_after_consecutive_losses: 3
