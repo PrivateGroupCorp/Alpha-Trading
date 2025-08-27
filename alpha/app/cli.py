@@ -31,6 +31,7 @@ from alpha.viz.structure import (
     build_structure_segments_and_markers,
     plot_structure,
 )
+from alpha.viz.poi import POIVizCfg, build_poi_layers, plot_poi
 from alpha.liquidity.asia import AsiaCfg, asia_range_daily, summarize_asia_ranges
 from alpha.liquidity.eq_clusters import (
     EqCfg,
@@ -903,6 +904,88 @@ def analyze_poi_ob(
     )
 
 
+def analyze_poi_viz(
+    parquet: str,
+    zones_csv: str,
+    symbol: str,
+    tf: str,
+    outdir: str,
+    profile: str = "h1",
+    sweeps_csv: str | None = None,
+    eq_clusters_csv: str | None = None,
+    asia_daily_csv: str | None = None,
+    trend_timeline_csv: str | None = None,
+    last_n_bars: int = 500,
+    full: bool = False,
+) -> None:
+    df = pd.read_parquet(parquet)
+    zones = pd.read_csv(zones_csv)
+    sweeps = pd.read_csv(sweeps_csv, parse_dates=["pen_time"]) if sweeps_csv else None
+    eq_clusters = pd.read_csv(eq_clusters_csv) if eq_clusters_csv else None
+    asia_daily = (
+        pd.read_csv(asia_daily_csv, parse_dates=["start_ts", "end_ts", "date"]) if asia_daily_csv else None
+    )
+    trend_timeline = (
+        pd.read_csv(trend_timeline_csv, parse_dates=["time"]) if trend_timeline_csv else None
+    )
+
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "viz.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    cfg_dict = data.get("poi_plot", {})
+    cfg = POIVizCfg(**cfg_dict)
+
+    rects, segments, markers = build_poi_layers(
+        df,
+        zones,
+        sweeps,
+        eq_clusters,
+        asia_daily,
+        trend_timeline,
+        cfg,
+        window_last_n=last_n_bars,
+    )
+
+    tail_df = df.tail(last_n_bars) if last_n_bars and last_n_bars > 0 else df
+    out_path = Path(outdir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    plot_poi(
+        tail_df,
+        rects,
+        segments,
+        markers,
+        cfg,
+        str(out_path / f"poi_last{last_n_bars}.png"),
+        f"{symbol} {tf} — POI last{last_n_bars}",
+    )
+
+    rects.to_csv(out_path / f"poi_rects_last{last_n_bars}.csv", index=False)
+    segments.to_csv(out_path / f"poi_segments_last{last_n_bars}.csv", index=False)
+    markers.to_csv(out_path / f"poi_markers_last{last_n_bars}.csv", index=False)
+
+    if full:
+        rect_f, seg_f, mark_f = build_poi_layers(
+            df,
+            zones,
+            sweeps,
+            eq_clusters,
+            asia_daily,
+            trend_timeline,
+            cfg,
+            window_last_n=None,
+        )
+        plot_poi(
+            df,
+            rect_f,
+            seg_f,
+            mark_f,
+            cfg,
+            str(out_path / "poi_full.png"),
+            f"{symbol} {tf} — POI full",
+        )
+
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
@@ -1030,6 +1113,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--asia-daily")
     p.add_argument("--trend-timeline")
 
+    p = sub.add_parser("analyze-poi-viz")
+    p.add_argument("--parquet", required=True)
+    p.add_argument("--zones", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--profile", default="h1")
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--sweeps")
+    p.add_argument("--eq-clusters")
+    p.add_argument("--asia-daily")
+    p.add_argument("--trend-timeline")
+    p.add_argument("--last-n-bars", type=int, default=500)
+    p.add_argument("--full", action="store_true")
 
     return parser
 
@@ -1172,6 +1268,21 @@ def main() -> None:
             eq_clusters_csv=args.eq_clusters,
             asia_daily_csv=args.asia_daily,
             trend_timeline_csv=args.trend_timeline,
+        )
+    elif args.command == "analyze-poi-viz":
+        analyze_poi_viz(
+            parquet=args.parquet,
+            zones_csv=args.zones,
+            symbol=args.symbol,
+            tf=args.tf,
+            outdir=args.outdir,
+            profile=args.profile,
+            sweeps_csv=args.sweeps,
+            eq_clusters_csv=args.eq_clusters,
+            asia_daily_csv=args.asia_daily,
+            trend_timeline_csv=args.trend_timeline,
+            last_n_bars=args.last_n_bars,
+            full=args.full,
         )
     else:
         parser.print_help()
