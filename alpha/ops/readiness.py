@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -154,8 +155,18 @@ def run_readiness(cfg: ReadyCfg) -> Dict[str, Any]:
     ]
     for k, v in gates.items():
         md_lines.append(f"- {k}: {'pass' if v else 'fail'}")
+    if run_id:
+        report_path = (
+            Path("artifacts")
+            / "reports"
+            / f"{cfg.symbol}_{cfg.htf}"
+            / f"report_{run_id}.html"
+        )
+        rel_report = os.path.relpath(report_path, outdir)
+        md_lines.extend(["", f"[Report]({rel_report})"])
     if notes:
-        md_lines.append("\n## Notes")
+        md_lines.append("")
+        md_lines.append("## Notes")
         md_lines.extend(f"- {n}" for n in notes)
     md_path.write_text("\n".join(md_lines), encoding="utf-8")
 

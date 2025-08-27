@@ -1604,7 +1604,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol", required=True)
     p.add_argument("--htf", required=True)
     p.add_argument("--ltf", required=True)
-    p.add_argument("--mode", choices=["dry", "full"], default="dry")
+    p.add_argument("--mode", choices=["dry", "smoke", "full"], default="dry")
     p.add_argument("--rolling-days", type=int, default=30)
     p.add_argument("--auto-fetch", action="store_true")
     p.add_argument("--provider", default="tardis")
