@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -1598,6 +1599,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list-schedules", action="store_true")
     p.add_argument("--config", dest="config_path", default="alpha/config/scheduler.yml")
 
+    p = sub.add_parser("project-readiness")
+    p.add_argument("--profile", required=True)
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--htf", required=True)
+    p.add_argument("--ltf", required=True)
+    p.add_argument("--mode", choices=["dry", "full"], default="dry")
+    p.add_argument("--rolling-days", type=int, default=30)
+    p.add_argument("--auto-fetch", action="store_true")
+    p.add_argument("--provider", default="tardis")
+    p.add_argument("--force", action="store_true")
+
     # QA utilities
     p = sub.add_parser("qa-run")
     p.add_argument("--symbol", required=True)
@@ -1866,6 +1878,26 @@ def main() -> None:
             list_schedules=args.list_schedules,
             config_path=args.config_path,
         )
+    elif args.command == "project-readiness":
+        from alpha.ops.readiness import ReadyCfg, run_readiness
+
+        cfg = ReadyCfg(
+            profile=args.profile,
+            symbol=args.symbol,
+            htf=args.htf,
+            ltf=args.ltf,
+            mode=args.mode,
+            rolling_days=args.rolling_days,
+            auto_fetch=args.auto_fetch,
+            provider=args.provider,
+            force=args.force,
+        )
+        result = run_readiness(cfg)
+        artifacts = result.get("artifacts", {})
+        print(
+            f"[project-readiness] grade={result['grade']} artifacts={artifacts}"
+        )
+        sys.exit(1 if result.get("grade") == "Red" else 0)
     elif args.command == "qa-run":
         cfg = load_yaml("alpha/config/qa.yml").get("qa", {})
         result = run_qa(
