@@ -1,0 +1,15 @@
+backtrader
+ccxt
+croniter
+fastparquet
+jinja2
+matplotlib
+numpy
+pandas
+plotly
+pyarrow
+python-dateutil
+pyyaml
+requests
+vectorbt
+yfinance

@@ -11,3 +11,6 @@ artifacts/
 *.csv
 *.txt
 byebye.txt
+!requirements.txt
+!alpha/report/templates/*.html
+!alpha/report/templates/partials/*.html
