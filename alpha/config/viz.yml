@@ -45,3 +45,53 @@ structure_plot:
   dpi: 150
   fig_w: 12
   fig_h: 6
+
+poi_plot:
+  last_n_bars: 500
+  dpi: 150
+  fig_w: 13
+  fig_h: 7
+
+  price_linewidth: 1.0
+  alpha_price: 0.85
+
+  show_zones: true
+  zone_alpha: 0.25
+  zone_edge_alpha: 0.9
+  max_zones: 40
+  min_grade: "C"
+  draw_zone_labels: true
+
+  show_sweeps: true
+  show_eq: true
+  show_asia: true
+  show_trend: true
+  marker_size: 54
+  eq_band_alpha: 0.35
+  asia_time_alpha: 0.08
+  asia_edge_alpha: 0.6
+
+  colors:
+    price: "#6b7280"
+    demand: "#22c55e"
+    supply: "#ef4444"
+    breaker: "#a855f7"
+    flip: "#f59e0b"
+    sweep_up: "#22c55e"
+    sweep_down: "#ef4444"
+    eqh: "#ef4444"
+    eql: "#0ea5e9"
+    asia_time: "#60a5fa"
+    asia_high: "#60a5fa"
+    asia_low: "#60a5fa"
+    trend_up_bg: "#dcfce7"
+    trend_down_bg: "#fee2e2"
+    trend_range_bg: "#f1f5f9"
+
+  grade_palette:
+    A: "#16a34a"
+    B: "#f59e0b"
+    C: "#9ca3af"
+
+  zone_rank_by: "score_total"
+  pick_top_k: 25
