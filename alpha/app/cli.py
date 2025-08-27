@@ -13,6 +13,7 @@ import yaml
 from alpha.ops.runner import RunCfg, run_pipeline
 from alpha.ops.scheduler import ScheduleCfg, run_once as sched_run_once, start_scheduler
 from alpha.ops.audit import run_repo_audit
+from alpha.ops.doctor import run_doctor
 
 from alpha.core.io import read_mt_tsv, to_parquet
 from alpha.core.indicators import atr, is_doji_series, true_range
@@ -1583,6 +1584,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outdir", default="artifacts/audit")
     p.add_argument("--deep", action="store_true")
 
+    p = sub.add_parser("project-doctor")
+    p.add_argument("--root", default=".")
+    p.add_argument("--profile", default="e2e_h1_m1")
+    p.add_argument("--apply", dest="apply", action="store_true", default=True)
+    p.add_argument("--no-apply", dest="apply", action="store_false")
+    p.add_argument("--dry-run", action="store_true")
+
     p = sub.add_parser("schedule-run")
     p.add_argument("--profile", default="e2e_h1_m1")
     p.add_argument("--once", action="store_true")
@@ -1835,6 +1843,12 @@ def main() -> None:
     elif args.command == "repo-audit":
         result = run_repo_audit(root=args.root, outdir=args.outdir, deep=args.deep)
         raise SystemExit(result.get("exit_code", 0))
+    elif args.command == "project-doctor":
+        result = run_doctor(
+            root=args.root, profile=args.profile, apply=args.apply, dry_run=args.dry_run
+        )
+        if not result.get("ok", True):
+            raise SystemExit(1)
     elif args.command == "generate-report":
         generate_report(
             symbol=args.symbol,
