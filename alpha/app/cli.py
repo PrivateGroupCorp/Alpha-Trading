@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from datetime import datetime
 
 import pandas as pd
 import yaml
@@ -50,6 +51,13 @@ from alpha.backtest.vbt_bridge import (
 )
 from alpha.backtest.metrics import summarize_bt
 from alpha.backtest.bt_runner import run_backtest_bt
+from alpha.report.build_report import (
+    ReportCfg,
+    collect_artifacts,
+    load_metrics_and_tables,
+    render_html,
+    snapshot_params,
+)
 
 
 def analyze_levels_data(data: str, symbol: str, tf: str, tz: str, outdir: str) -> None:
@@ -1179,6 +1187,54 @@ def run_backtest_vbt(
     print(f"by_trigger={summary['by_trigger']}")
 
 
+def generate_report(
+    symbol: str,
+    tf: str,
+    outdir: str,
+    profile: str = "h1",
+    last_n_bars: int | None = None,
+    title_prefix: str | None = None,
+) -> None:
+    cfg_path = Path(__file__).resolve().parents[1] / "config" / "report.yml"
+    with cfg_path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    report_cfg = ReportCfg(**(data.get("report", {})))
+
+    if title_prefix:
+        report_cfg.title_prefix = title_prefix
+
+    base_dir = Path(outdir).resolve().parents[1]
+    paths = collect_artifacts(str(base_dir), symbol, tf)
+    kpi, tables = load_metrics_and_tables(paths)
+
+    max_rows = report_cfg.tables.get("max_rows_preview", 50) if report_cfg.tables else 50
+    tables = {k: df.head(max_rows) for k, df in tables.items()}
+
+    now = datetime.utcnow().strftime("%Y%m%d_%H%M")
+    out_html = Path(outdir) / f"report_{now}.html"
+    assets_dir = str(Path(outdir) / "assets") if not report_cfg.charts or report_cfg.charts.get("embed_png", True) else str(Path(outdir) / "assets")
+    if report_cfg.charts and not report_cfg.charts.get("embed_png", True):
+        assets_dir = None
+
+    render_html(report_cfg, paths, kpi, tables, str(out_html), assets_dir)
+
+    cfg_base = Path(__file__).resolve().parents[1] / "config"
+    cfg_paths = {
+        name: str(cfg_base / name)
+        for name in [
+            "structure.yml",
+            "liquidity.yml",
+            "poi.yml",
+            "execution.yml",
+            "backtest.yml",
+            "viz.yml",
+        ]
+    }
+    snapshot_params(cfg_paths, str(Path(outdir) / "params_snapshot.json"))
+
+    print(f"Report saved: {out_html}")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
     sub = parser.add_subparsers(dest="command")
@@ -1215,6 +1271,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--eq-clusters")
     p.add_argument("--asia-daily")
     p.add_argument("--events")
+
+    p = sub.add_parser("generate-report")
+    p.add_argument("--symbol", required=True)
+    p.add_argument("--tf", required=True)
+    p.add_argument("--outdir", required=True)
+    p.add_argument("--profile", default="h1")
+    p.add_argument("--last-n-bars", type=int)
+    p.add_argument("--title-prefix")
 
     p = sub.add_parser("analyze-levels-formation")
     p.add_argument("--parquet", required=True)
@@ -1558,6 +1622,15 @@ def main() -> None:
             sweeps_csv=args.sweeps,
             start=args.start,
             end=args.end,
+        )
+    elif args.command == "generate-report":
+        generate_report(
+            symbol=args.symbol,
+            tf=args.tf,
+            outdir=args.outdir,
+            profile=args.profile,
+            last_n_bars=args.last_n_bars,
+            title_prefix=args.title_prefix,
         )
     else:
         parser.print_help()

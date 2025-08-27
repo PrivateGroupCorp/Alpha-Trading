@@ -1,0 +1,23 @@
+report:
+  title_prefix: "Alpha-POI Report"
+  logo_path: null
+  theme: "light"
+  last_n_bars_default: 500
+  date_format: "%Y-%m-%d %H:%M"
+  number_format:
+    pips_decimals: 1
+    price_decimals: 5
+  sections:
+    overview: true
+    structure: true
+    liquidity: true
+    poi: true
+    execution: true
+    backtests: true
+    appendix: true
+  tables:
+    max_rows_preview: 50
+  charts:
+    embed_png: true
+  notes:
+    show_params: true
