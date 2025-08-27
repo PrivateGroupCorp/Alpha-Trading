@@ -11,6 +11,7 @@ import pandas as pd
 import yaml
 
 from alpha.ops.runner import RunCfg, run_pipeline
+from alpha.ops.scheduler import ScheduleCfg, run_once as sched_run_once, start_scheduler
 from alpha.ops.audit import run_repo_audit
 
 from alpha.core.io import read_mt_tsv, to_parquet
@@ -1324,6 +1325,42 @@ def run_pipeline_cli(
     print(json.dumps(result))
 
 
+
+def schedule_run(
+    profile: str = 'e2e_h1_m1',
+    once: bool = False,
+    run_now: str | None = None,
+    list_schedules: bool = False,
+    config_path: str = 'alpha/config/scheduler.yml',
+) -> None:
+    """Execute scheduler related commands."""
+    data = {}
+    cfg_path = Path(config_path)
+    if cfg_path.exists():
+        with cfg_path.open('r', encoding='utf-8') as fh:
+            data = yaml.safe_load(fh) or {}
+    all_cfg = {sid: ScheduleCfg(**scfg) for sid, scfg in (data.get('schedules') or {}).items()}
+    if list_schedules:
+        for sid, scfg in all_cfg.items():
+            state = 'enabled' if scfg.enable else 'disabled'
+            print(f'{sid}: {state}')
+        return
+    if run_now:
+        scfg = all_cfg[run_now]
+        res = sched_run_once(run_now, scfg)
+        print(Path(res['scheduler_root']) / 'runs.jsonl')
+        print(Path(res['scheduler_root']) / 'last_status.json')
+        return
+    if once:
+        sid = next((s for s, c in all_cfg.items() if c.profile == profile), None)
+        if not sid:
+            raise SystemExit(f'profile {profile} not found in schedules')
+        res = sched_run_once(sid, all_cfg[sid])
+        print(Path(res['scheduler_root']) / 'runs.jsonl')
+        print(Path(res['scheduler_root']) / 'last_status.json')
+        return
+    start_scheduler(all_cfg)
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="alpha-cli")
     sub = parser.add_subparsers(dest="command")
@@ -1543,6 +1580,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", default=".")
     p.add_argument("--outdir", default="artifacts/audit")
     p.add_argument("--deep", action="store_true")
+
+    p = sub.add_parser("schedule-run")
+    p.add_argument("--profile", default="e2e_h1_m1")
+    p.add_argument("--once", action="store_true")
+    p.add_argument("--run-now")
+    p.add_argument("--list-schedules", action="store_true")
+    p.add_argument("--config", dest="config_path", default="alpha/config/scheduler.yml")
 
     return parser
 
@@ -1783,6 +1827,14 @@ def main() -> None:
             profile=args.profile,
             last_n_bars=args.last_n_bars,
             title_prefix=args.title_prefix,
+        )
+    elif args.command == "schedule-run":
+        schedule_run(
+            profile=args.profile,
+            once=args.once,
+            run_now=args.run_now,
+            list_schedules=args.list_schedules,
+            config_path=args.config_path,
         )
     else:
         parser.print_help()
